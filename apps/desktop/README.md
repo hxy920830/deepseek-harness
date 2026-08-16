@@ -30,7 +30,7 @@ The shell writes to the Host stdin before exit. The CLI disposes the complete Co
 pnpm --filter @deepseek-ai/dsh-desktop run build
 ```
 
-The build hook runs [`scripts/stage-runtime.ts`](scripts/stage-runtime.ts): it verifies the private `apps/desktop-runtime` deploy manifest's workspace-peer closure, builds the repository, materializes the production dependency tree into Tauri resources, and copies the current native Node executable beside that tree. The installed application therefore uses its bundled Node carrier and built Web/plugin artifacts instead of a system `node`, `pnpm`, or `dsh` command. Build each installer on its target operating system and architecture so Node, native addons, WebView metadata, and signatures match the target.
+The build hook runs [`scripts/stage-runtime.ts`](scripts/stage-runtime.ts): it verifies this package's production workspace-peer closure, builds the repository, deploys its production dependencies into Tauri resources, and copies the current native Node executable beside that tree. The installed application therefore uses its bundled Node carrier and built Web/plugin artifacts instead of a system `node`, `pnpm`, or `dsh` command. Build each installer on its target operating system and architecture so Node, native addons, WebView metadata, and signatures match the target.
 
 The icon files under `src-tauri/icons/` are generated from [`apps/web/public/favicon.svg`](../web/public/favicon.svg), which remains the single editable DeepSeek icon source.
 

@@ -36,7 +36,7 @@ async function restoreDirectDependencies(staged: string): Promise<void> {
   const manifest = JSON.parse(await readFile(join(staged, 'package.json'), 'utf8')) as {
     dependencies?: Record<string, string>
   }
-  const sourceNodeModules = join(root, 'apps', 'desktop-runtime', 'node_modules')
+  const sourceNodeModules = join(desktop, 'node_modules')
   for (const dependency of Object.keys(manifest.dependencies ?? {}).sort()) {
     const destination = join(staged, 'node_modules', dependency)
     if (existsSync(destination)) continue
@@ -93,16 +93,16 @@ const [closureCommand, closureArgs] = pnpmArgs([
   'run',
   'verify-runtime-closure',
   '--manifest',
-  'apps/desktop-runtime/package.json',
+  'apps/desktop/package.json',
 ])
 await run(closureCommand, closureArgs)
 const [buildCommand, buildArgs] = pnpmArgs(['run', 'build'])
 await run(buildCommand, buildArgs)
-const staged = await mkdtemp(join(root, '.desktop-runtime-'))
+const staged = await mkdtemp(join(dirname(root), '.deepseek-harness-desktop-runtime-'))
 try {
   const [deployCommand, deployArgs] = pnpmArgs([
     '--filter',
-    'dsh-desktop-runtime',
+    '@deepseek-ai/dsh-desktop',
     'deploy',
     '--legacy',
     '--prod',
@@ -116,7 +116,7 @@ try {
   await materializePackageLinks(join(staged, 'node_modules'))
 
   const deployedManifest = JSON.parse(await readFile(join(staged, 'package.json'), 'utf8')) as { name?: unknown }
-  if (deployedManifest.name !== 'dsh-desktop-runtime') {
+  if (deployedManifest.name !== '@deepseek-ai/dsh-desktop') {
     throw new Error(`desktop runtime deploy produced unexpected package ${String(deployedManifest.name)}`)
   }
   const dshRoot = join(staged, 'node_modules', '@deepseek-ai', 'dsh')
@@ -139,10 +139,13 @@ try {
   await cp(process.execPath, join(runtime, nodeName))
   console.log(`desktop runtime: staged ${runtime}`)
 } finally {
-  await rm(staged, { recursive: true, force: true })
-  // Legacy deploy materializes missing direct workspace dependencies beside
-  // its source package. Restore the workspace links before returning so later
-  // repository commands do not see a production-only install.
-  const [installCommand, installArgs] = pnpmArgs(['install', '--offline', '--frozen-lockfile'])
-  await run(installCommand, installArgs)
+  try {
+    await rm(staged, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  } finally {
+    // Legacy deploy materializes missing direct workspace dependencies beside
+    // its source package. Restore the workspace links before returning so later
+    // repository commands do not see a production-only install.
+    const [installCommand, installArgs] = pnpmArgs(['install', '--offline', '--frozen-lockfile'])
+    await run(installCommand, installArgs)
+  }
 }

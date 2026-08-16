@@ -472,15 +472,6 @@ importers:
         version: 8.21.0
 
   apps/desktop:
-    devDependencies:
-      '@tauri-apps/cli':
-        specifier: 2.11.4
-        version: 2.11.4
-      tsx:
-        specifier: ^4.22.4
-        version: 4.22.4
-
-  apps/desktop-runtime:
     dependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -773,6 +764,13 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:../../vendor/schemastery
         version: link:../../vendor/schemastery
+    devDependencies:
+      '@tauri-apps/cli':
+        specifier: 2.11.4
+        version: 2.11.4
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
 
   apps/web:
     devDependencies:

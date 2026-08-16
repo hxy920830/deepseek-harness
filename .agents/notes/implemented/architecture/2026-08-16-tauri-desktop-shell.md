@@ -12,7 +12,7 @@ DeepSeek Harness needs a Tauri 2 desktop application with a system tray and expl
 
 [`apps/desktop`](../../../../apps/desktop/README.md) is an application shell above the existing Web composition. Rust owns the native window, tray, restricted close handshake, and one child Host. It starts `dsh web` on loopback with port zero, accepts only the existing `dsh web: http://127.0.0.1:<port>` readiness signal, and creates the main WebView after that signal.
 
-Development starts the repository `pnpm dsh` entry. Production uses the private `apps/desktop-runtime` deploy root to verify and materialize the built Web composition's workspace-peer closure, then stages that dependency tree and the build machine's native Node executable as Tauri resources. Each platform builds its own carrier and installer.
+Development starts the repository `pnpm dsh` entry. The desktop package declares the built Web composition's complete production dependency set; production verifies its workspace-peer closure, deploys that dependency tree, and stages it with the build machine's native Node executable as Tauri resources. Each platform builds its own carrier and installer.
 
 The desktop process keeps Host stdin open as an explicit parent-lifetime channel. A byte or EOF asks the CLI to run its existing bounded shutdown controller, which disposes the Cordis tree. Desktop exit waits for that child to settle and force-terminates it after five seconds.
 

@@ -30,7 +30,7 @@ Tauri 开发钩子会先构建仓库。随后 Rust 进程从当前 checkout 启�
 pnpm --filter @deepseek-ai/dsh-desktop run build
 ```
 
-构建钩子会运行 [`scripts/stage-runtime.ts`](scripts/stage-runtime.ts)：验证私有 `apps/desktop-runtime` 部署清单的 workspace peer 闭包，构建整个仓库，将生产依赖树物化到 Tauri resources，并把当前平台的 Node 可执行文件复制到该目录。安装后的应用使用随包携带的 Node 载体以及已构建的 Web 与插件产物，不依赖系统提供的 `node`、`pnpm` 或 `dsh` 命令。每个安装包都必须在目标操作系统和体系结构上构建，使 Node、原生 addon、WebView 元数据和签名与目标一致。
+构建钩子会运行 [`scripts/stage-runtime.ts`](scripts/stage-runtime.ts)：验证本包的生产 workspace peer 闭包，构建整个仓库，将其生产依赖部署到 Tauri resources，并把当前平台的 Node 可执行文件复制到该目录。安装后的应用使用随包携带的 Node 载体以及已构建的 Web 与插件产物，不依赖系统提供的 `node`、`pnpm` 或 `dsh` 命令。每个安装包都必须在目标操作系统和体系结构上构建，使 Node、原生 addon、WebView 元数据和签名与目标一致。
 
 `src-tauri/icons/` 下的图标由 [`apps/web/public/favicon.svg`](../web/public/favicon.svg) 生成；后者仍是唯一可编辑的 DeepSeek 图标源。
 
