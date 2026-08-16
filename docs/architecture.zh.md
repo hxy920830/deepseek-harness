@@ -28,6 +28,8 @@
 
 自定义 profile 默认实时重载 patch。随附的 `web` profile 使用实时重载；`headless`、`sdk`、`sdk-minimal` 和 `acp` 则只在启动时应用一次所有配置层，因为一次性应用或 stdio 应用拥有工作之后，替换其依赖会破坏该生命周期。
 
+应用壳位于这一组合之上。[`apps/desktop`](../apps/desktop/README.zh.md) 是 Tauri 2 壳：它负责原生窗口、托盘、关闭确认以及内置 `dsh web --port 0` Host 的生命周期，然后加载该 Host 的 loopback URL。浏览器启动清单、客户端插件包和 API 仍由 Web 组合负责；Tauri 不会增加第二套插件清单或模型可见行为。
+
 要查看你的机器启动的配置树：
 
 ```sh

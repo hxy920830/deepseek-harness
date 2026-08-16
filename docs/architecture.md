@@ -28,6 +28,8 @@ Layers apply to an empty entry list in this order: each bundle in the profile's 
 
 Custom profiles default to live patch reload. The shipped `web` profile is live; `headless`, `sdk`, `sdk-minimal`, and `acp` apply all layers once at startup because replacing a one-shot or stdio application's dependencies after it owns work would invalidate that lifecycle.
 
+Application shells stay above this composition. [`apps/desktop`](../apps/desktop/README.md) is the Tauri 2 shell: it owns the native window, tray, close confirmation, and the lifetime of a bundled `dsh web --port 0` Host, then loads that Host's loopback URL. The browser boot manifest, client plugin bundles, and API remain owned by the Web composition; Tauri contributes no second plugin roster or model-visible behavior.
+
 To see the tree your machine boots:
 
 ```sh

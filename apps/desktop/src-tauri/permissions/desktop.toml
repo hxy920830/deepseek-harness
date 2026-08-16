@@ -1,0 +1,11 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "allow-desktop-ready"
+description = "Allows the main desktop WebView to announce that its close listener is installed."
+commands.allow = ["desktop_ready"]
+
+[[permission]]
+identifier = "allow-desktop-resolve-close"
+description = "Allows the main desktop WebView to resolve the current request-id-checked close request."
+commands.allow = ["desktop_resolve_close"]

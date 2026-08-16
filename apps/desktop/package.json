@@ -1,0 +1,34 @@
+{
+  "name": "@deepseek-ai/dsh-desktop",
+  "description": "Tauri 2 desktop shell for the DeepSeek Harness Web composition",
+  "version": "0.1.0-rc.5",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "apps/desktop"
+  },
+  "files": [
+    "bootstrap",
+    "scripts",
+    "src-tauri",
+    "!src-tauri/target",
+    "!src-tauri/runtime"
+  ],
+  "scripts": {
+    "prepare-dev": "pnpm --dir ../.. run build",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "stage-runtime": "tsx scripts/stage-runtime.ts",
+    "smoke-runtime": "tsx scripts/smoke-runtime.ts",
+    "tauri": "tauri"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "tsx": "^4.22.4"
+  }
+}
