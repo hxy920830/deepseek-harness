@@ -16,6 +16,8 @@ function bench(
   ),
 ) {
   const dismiss = vi.fn((sessionId: SessionId) => { controller.dismiss(sessionId) })
+  const revealSaved = vi.fn<(sessionId: SessionId) => Promise<void>>(async () => undefined)
+  const openSaved = vi.fn<(sessionId: SessionId) => Promise<void>>(async () => undefined)
   function useSessionLogDownload<T>(selector: (state: ReturnType<typeof controller.store.getSnapshot>) => T): T {
     return useSyncExternalStore(
       listener => controller.store.subscribe(listener),
@@ -23,9 +25,11 @@ function bench(
     )
   }
   const t = (key: keyof typeof en): string => en[key]
-  const props = { sessionId: SID, useSessionLogDownload, dismiss, t } as unknown as SessionLogDownloadDialogProps
+  const props = {
+    sessionId: SID, useSessionLogDownload, dismiss, t, revealSaved, openSaved,
+  } as unknown as SessionLogDownloadDialogProps
   const view = render(<SessionLogDownloadDialog {...props} />)
-  return { controller, dismiss, view }
+  return { controller, dismiss, revealSaved, openSaved, view }
 }
 
 afterEach(cleanup)
@@ -35,7 +39,7 @@ describe('SessionLogDownloadDialog', () => {
     const b = bench()
     act(() => {
       b.controller.store.set({
-        bySession: { [SID]: { open: true, status: 'error', error: 'toolbar failed' } },
+        bySession: { [SID]: { open: true, status: 'error', error: 'toolbar failed', filePath: null } },
       })
     })
     const dialog = await b.view.findByRole('dialog', { name: 'Session export failed' })
@@ -59,11 +63,54 @@ describe('SessionLogDownloadDialog', () => {
     expect(await b.view.findByRole('dialog', { name: 'Session download started' })).toBeTruthy()
   })
 
+  it('offers reveal and open actions for a natively saved archive', async () => {
+    const b = bench()
+    act(() => {
+      b.controller.store.set({
+        bySession: {
+          [SID]: { open: true, status: 'success', error: null, filePath: 'D:\\logs\\dsh-session-demo.zip' },
+        },
+      })
+    })
+    const dialog = await b.view.findByRole('dialog', { name: 'Session log exported' })
+    expect(dialog.textContent).toContain('D:\\logs\\dsh-session-demo.zip')
+
+    fireEvent.click(b.view.getByRole('button', { name: 'Open folder' }))
+    await waitFor(() => { expect(b.revealSaved).toHaveBeenCalledWith(SID) })
+
+    fireEvent.click(b.view.getByRole('button', { name: 'Open file' }))
+    await waitFor(() => { expect(b.openSaved).toHaveBeenCalledWith(SID) })
+
+    const close = b.view.getAllByRole('button', { name: 'Close' }).at(-1)
+    if (close === undefined) throw new Error('Session export dialog has no footer action')
+    fireEvent.click(close)
+    await waitFor(() => { expect(b.dismiss).toHaveBeenCalledWith(SID) })
+  })
+
+  it('reports an archive action failure inside the success dialog', async () => {
+    const failing = vi.fn<(sessionId: SessionId) => Promise<void>>(async () => {
+      throw new Error('explorer unavailable')
+    })
+    const b = bench()
+    act(() => {
+      b.controller.store.set({
+        bySession: {
+          [SID]: { open: true, status: 'success', error: null, filePath: 'D:\\logs\\dsh-session-demo.zip' },
+        },
+      })
+    })
+    b.revealSaved.mockImplementation(failing)
+
+    fireEvent.click(b.view.getByRole('button', { name: 'Open folder' }))
+
+    await waitFor(() => { expect(b.view.getByRole('alert').textContent).toBe('The action failed. Try again.') })
+  })
+
   it('uses fallback copy when a failure has no detail', async () => {
     const b = bench()
     act(() => {
       b.controller.store.set({
-        bySession: { [SID]: { open: true, status: 'error', error: '' } },
+        bySession: { [SID]: { open: true, status: 'error', error: '', filePath: null } },
       })
     })
     const dialog = await b.view.findByRole('dialog', { name: 'Session export failed' })

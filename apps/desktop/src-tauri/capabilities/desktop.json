@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "Allows the loopback-hosted main WebView to participate in the desktop close handshake.",
+  "description": "Allows the loopback-hosted main WebView to participate in the desktop close handshake and Session log archive operations.",
   "local": false,
   "windows": ["main"],
   "remote": {
@@ -11,6 +11,10 @@
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "allow-desktop-ready",
-    "allow-desktop-resolve-close"
+    "allow-desktop-resolve-close",
+    "allow-desktop-pick-folder",
+    "allow-desktop-save-session-log",
+    "allow-desktop-reveal-session-log",
+    "allow-desktop-open-session-log"
   ]
 }

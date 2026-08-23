@@ -4,6 +4,7 @@ import { SettingsProvider, settingsNamespace, type SettingsNamespace } from '@de
 import {
   DEFAULT_DESKTOP_CLOSE_BEHAVIOR, DESKTOP_SETTINGS_NAMESPACE, apply,
 } from '../src/index.ts'
+import { DEFAULT_SESSION_LOG_DIR } from '../src/settings.ts'
 
 class MemorySettings extends SettingsProvider {
   readonly writable = true
@@ -23,13 +24,19 @@ describe('ui-desktop host', () => {
     await fiber.await()
     const ns = settingsNamespace(DESKTOP_SETTINGS_NAMESPACE)
 
-    expect(ctx.settings.get(ns)).toEqual({ closeBehavior: DEFAULT_DESKTOP_CLOSE_BEHAVIOR })
+    expect(ctx.settings.get(ns)).toEqual({
+      closeBehavior: DEFAULT_DESKTOP_CLOSE_BEHAVIOR,
+      sessionLogDir: DEFAULT_SESSION_LOG_DIR,
+    })
     for (const closeBehavior of ['ask', 'minimize', 'exit'] as const) {
       await ctx.settings.update(ns, { closeBehavior })
-      expect(ctx.settings.get(ns)).toEqual({ closeBehavior })
+      expect(ctx.settings.get(ns)).toEqual({ closeBehavior, sessionLogDir: '' })
     }
+    await ctx.settings.update(ns, { closeBehavior: 'ask', sessionLogDir: 'D:\\session-logs' })
+    expect(ctx.settings.get(ns)).toEqual({ closeBehavior: 'ask', sessionLogDir: 'D:\\session-logs' })
     await expect(ctx.settings.update(ns, { closeBehavior: 'later' })).rejects.toThrow()
-    expect(ctx.settings.get(ns)).toEqual({ closeBehavior: 'exit' })
+    await expect(ctx.settings.update(ns, { sessionLogDir: 42 as never })).rejects.toThrow()
+    expect(ctx.settings.get(ns)).toEqual({ closeBehavior: 'ask', sessionLogDir: 'D:\\session-logs' })
 
     await fiber.dispose()
     expect(ctx.settings.describe().map(row => row.ns)).not.toContain(ns)

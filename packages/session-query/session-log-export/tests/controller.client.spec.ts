@@ -1,11 +1,26 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { DesktopSessionFiles } from '@deepseek-ai/dsh-client-ui-desktop/client'
 import {
   downloadUrl, SessionLogDownloadController, sessionLogZipFilename,
 } from '../src/client/controller.ts'
 
 const SID = 'session-export-controller' as SessionId
+
+function filesStub(overrides: Partial<DesktopSessionFiles> = {}): DesktopSessionFiles {
+  return {
+    directory: () => null,
+    save: vi.fn(async () => 'C:\\dl\\dsh-session-x.zip'),
+    reveal: vi.fn(async () => undefined),
+    openFile: vi.fn(async () => undefined),
+    ...overrides,
+  }
+}
+
+function okHead(): Response {
+  return new Response('zip', { status: 200 })
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -14,7 +29,7 @@ afterEach(() => {
 
 describe('SessionLogDownloadController', () => {
   it('downloads the host ZIP and publishes one shared success state', async () => {
-    const fetcher = vi.fn(async () => new Response('zip', { status: 200 }))
+    const fetcher = vi.fn(async () => okHead())
     const save = vi.fn()
     const controller = new SessionLogDownloadController(fetcher, save)
 
@@ -32,7 +47,7 @@ describe('SessionLogDownloadController', () => {
       'dsh-session-session-export-controller.zip',
     )
     expect(controller.store.getSnapshot().bySession[SID]).toEqual({
-      open: true, status: 'success', error: null,
+      open: true, status: 'success', error: null, filePath: null,
     })
   })
 
@@ -45,12 +60,88 @@ describe('SessionLogDownloadController', () => {
     const second = controller.download(SID)
     expect(first).toBe(second)
     controller.dismiss(SID)
-    response.resolve(new Response('zip', { status: 200 }))
+    response.resolve(okHead())
     await first
 
     expect(fetcher).toHaveBeenCalledOnce()
     expect(controller.store.getSnapshot().bySession[SID]?.open).toBe(false)
     controller.dismiss(SID)
+  })
+
+  it('saves natively through the configured desktop capability', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetcher = vi.fn((_input: string | URL, init?: RequestInit) =>
+        Promise.resolve(init?.method === 'HEAD' ? okHead() : new Response('ZIPBYTES')))
+      const save = vi.fn<DesktopSessionFiles['save']>(async () => 'D:\\logs\\dsh-session-demo.zip')
+      const files = filesStub({
+        directory: () => 'D:\\logs',
+        save,
+      })
+      const controller = new SessionLogDownloadController(fetcher, vi.fn(), () => files)
+
+      await controller.download(SID)
+
+      expect(save).toHaveBeenCalledWith(
+        'dsh-session-session-export-controller.zip',
+        new Uint8Array(await new Response('ZIPBYTES').arrayBuffer()),
+      )
+      expect(controller.store.getSnapshot().bySession[SID]).toEqual({
+        open: true, status: 'success', error: null, filePath: 'D:\\logs\\dsh-session-demo.zip',
+      })
+
+      vi.advanceTimersByTime(5999)
+      expect(controller.store.getSnapshot().bySession[SID]?.open).toBe(true)
+      vi.advanceTimersByTime(1)
+      expect(controller.store.getSnapshot().bySession[SID]).toEqual({
+        open: false, status: 'success', error: null, filePath: 'D:\\logs\\dsh-session-demo.zip',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('falls back to the browser download when no directory is configured', async () => {
+    const fetcher = vi.fn(async () => okHead())
+    const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const save = vi.fn<DesktopSessionFiles['save']>()
+    const controller = new SessionLogDownloadController(fetcher, downloadUrl, () => filesStub({ save }))
+
+    await controller.download(SID)
+
+    expect(anchor).toHaveBeenCalledOnce()
+    expect(save).not.toHaveBeenCalled()
+    expect(controller.store.getSnapshot().bySession[SID]?.filePath).toBeNull()
+  })
+
+  it('surfaces native preflight and save failures as dialog errors', async () => {
+    const failingSave = filesStub({
+      directory: () => 'D:\\logs',
+      save: vi.fn(async () => { throw new Error('disk full') }),
+    })
+    const failing = new SessionLogDownloadController(async () => okHead(), vi.fn(), () => failingSave)
+    await failing.download(SID)
+    expect(failing.store.getSnapshot().bySession[SID]).toEqual({
+      open: true, status: 'error', error: 'disk full', filePath: null,
+    })
+
+    const failingGet = filesStub({
+      directory: () => 'D:\\logs',
+      save: vi.fn(),
+    })
+    const httpGet = new SessionLogDownloadController(
+      vi.fn((_input: string | URL, init?: RequestInit) =>
+        Promise.resolve(init?.method === 'HEAD' ? okHead() : new Response('gone', { status: 404 }))),
+      vi.fn(),
+      () => failingGet,
+    )
+    await httpGet.download(SID)
+    expect(httpGet.store.getSnapshot().bySession[SID]?.error).toBe('Export failed: HTTP 404 gone')
+    expect(failingGet.save).not.toHaveBeenCalled()
+
+    const unavailable = new SessionLogDownloadController(async () => okHead(), vi.fn())
+    await unavailable.download(SID)
+    expect(unavailable.store.getSnapshot().bySession[SID]?.status).toBe('success')
   })
 
   it('publishes HTTP and transport failures without leaking rejections', async () => {
@@ -62,6 +153,7 @@ describe('SessionLogDownloadController', () => {
       open: true,
       status: 'error',
       error: 'Export failed: HTTP 500 backend unavailable',
+      filePath: null,
     })
 
     const transport = new SessionLogDownloadController(async () => { throw 'offline' }, vi.fn())
@@ -99,36 +191,103 @@ describe('SessionLogDownloadController', () => {
     await controller.dispose()
   })
 
-  it('uses the null-origin fallback and default browser operations', async () => {
-    vi.stubGlobal('location', { origin: 'null' })
-    const fetcher = vi.fn(async (_input: string | URL, _init?: RequestInit) => new Response('zip'))
-    vi.stubGlobal('fetch', fetcher)
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-    const controller = new SessionLogDownloadController()
+  it('drops the pending success auto-dismiss on disposal', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new SessionLogDownloadController(async () => okHead(), vi.fn())
 
-    await controller.download(SID)
+      await controller.download(SID)
+      await controller.dispose()
+      vi.advanceTimersByTime(10_000)
 
-    expect((fetcher.mock.calls[0]?.[0] as URL).origin).toBe('http://dsh.internal')
-    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'HEAD' })
-    expect(click).toHaveBeenCalledOnce()
+      expect(controller.store.getSnapshot().bySession[SID]).toEqual({
+        open: true, status: 'success', error: null, filePath: null,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('defaults dialog openness when state is externally cleared before settlement', async () => {
-    const success = Promise.withResolvers<Response>()
-    const successful = new SessionLogDownloadController(() => success.promise, vi.fn())
-    const successRun = successful.download(SID)
-    successful.store.set({ bySession: {} })
-    success.resolve(new Response('zip'))
-    await successRun
-    expect(successful.store.getSnapshot().bySession[SID]?.open).toBe(true)
+  it('auto-dismisses the browser success dialog after its visible window', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new SessionLogDownloadController(async () => okHead(), vi.fn())
 
-    const failure = Promise.withResolvers<Response>()
-    const failing = new SessionLogDownloadController(() => failure.promise, vi.fn())
-    const failureRun = failing.download(SID)
-    failing.store.set({ bySession: {} })
-    failure.reject(new Error('failed after clear'))
-    await failureRun
-    expect(failing.store.getSnapshot().bySession[SID]?.open).toBe(true)
+      await controller.download(SID)
+      expect(controller.store.getSnapshot().bySession[SID]?.open).toBe(true)
+
+      vi.advanceTimersByTime(1999)
+      expect(controller.store.getSnapshot().bySession[SID]?.open).toBe(true)
+      vi.advanceTimersByTime(1)
+      expect(controller.store.getSnapshot().bySession[SID]?.open).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a manual close during the success window closed', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new SessionLogDownloadController(async () => okHead(), vi.fn())
+
+      await controller.download(SID)
+      controller.dismiss(SID)
+      vi.advanceTimersByTime(10_000)
+
+      expect(controller.store.getSnapshot().bySession[SID]?.open).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lets a fresh gesture supersede the previous success auto-dismiss', async () => {
+    vi.useFakeTimers()
+    try {
+      let call = 0
+      const gate = Promise.withResolvers<Response>()
+      const fetcher = vi.fn(() => {
+        call += 1
+        return call === 1 ? Promise.resolve(okHead()) : gate.promise
+      })
+      const controller = new SessionLogDownloadController(fetcher, vi.fn())
+
+      await controller.download(SID)
+      const restarted = controller.download(SID)
+      vi.advanceTimersByTime(10_000)
+      expect(controller.store.getSnapshot().bySession[SID]).toEqual({
+        open: true, status: 'downloading', error: null, filePath: null,
+      })
+
+      gate.resolve(new Response('zip'))
+      await restarted
+      expect(controller.store.getSnapshot().bySession[SID]?.status).toBe('success')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reveals and opens only a previously saved desktop archive', async () => {
+    const files = filesStub({
+      directory: () => 'D:\\logs',
+      reveal: vi.fn(async () => undefined),
+      openFile: vi.fn(async () => undefined),
+    })
+    const fetcher = vi.fn((_input: string | URL, init?: RequestInit) =>
+      Promise.resolve(init?.method === 'HEAD' ? okHead() : new Response('b')))
+    const controller = new SessionLogDownloadController(fetcher, vi.fn(), () => files)
+
+    await expect(controller.revealSaved(SID)).rejects.toThrow('no saved Session log archive')
+    await expect(controller.openSaved(SID)).rejects.toThrow('no saved Session log archive')
+
+    await controller.download(SID)
+    await controller.revealSaved(SID)
+    await controller.openSaved(SID)
+    expect(files.reveal).toHaveBeenCalledWith('C:\\dl\\dsh-session-x.zip')
+    expect(files.openFile).toHaveBeenCalledWith('C:\\dl\\dsh-session-x.zip')
+
+    const absent = new SessionLogDownloadController(async () => okHead(), vi.fn())
+    await absent.download(SID)
+    await expect(absent.revealSaved(SID)).rejects.toThrow('desktop session archives are unavailable')
   })
 })
 

@@ -18,6 +18,7 @@ tauri-build = { version = "2.5.4", features = [] }
 
 [dependencies]
 tauri = { version = "2.11.5", features = ["tray-icon"] }
+rfd = "0.16.0"
 
 [profile.release]
 codegen-units = 1

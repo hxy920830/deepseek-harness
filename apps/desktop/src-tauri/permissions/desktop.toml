@@ -9,3 +9,23 @@ commands.allow = ["desktop_ready"]
 identifier = "allow-desktop-resolve-close"
 description = "Allows the main desktop WebView to resolve the current request-id-checked close request."
 commands.allow = ["desktop_resolve_close"]
+
+[[permission]]
+identifier = "allow-desktop-pick-folder"
+description = "Allows the main desktop WebView to open one native folder picker for the Session log download location."
+commands.allow = ["desktop_pick_folder"]
+
+[[permission]]
+identifier = "allow-desktop-save-session-log"
+description = "Allows the main desktop WebView to save one convention-checked Session log archive into the configured directory."
+commands.allow = ["desktop_save_session_log"]
+
+[[permission]]
+identifier = "allow-desktop-reveal-session-log"
+description = "Allows the main desktop WebView to reveal one saved Session log archive in the file manager."
+commands.allow = ["desktop_reveal_session_log"]
+
+[[permission]]
+identifier = "allow-desktop-open-session-log"
+description = "Allows the main desktop WebView to open one saved Session log archive with its default handler."
+commands.allow = ["desktop_open_session_log"]

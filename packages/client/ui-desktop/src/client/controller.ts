@@ -1,9 +1,9 @@
 /** Desktop close request and durable preference controller. */
 
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  DEFAULT_DESKTOP_CLOSE_BEHAVIOR, DESKTOP_CLOSE_BEHAVIOR_FIELD,
+  DEFAULT_DESKTOP_CLOSE_BEHAVIOR, DESKTOP_CLOSE_BEHAVIOR_FIELD, DESKTOP_SESSION_LOG_DIR_FIELD,
   type DesktopCloseBehavior, type DesktopSettings,
 } from '../settings.ts'
 import type { DesktopBridge, DesktopCloseAction, DesktopCloseRequest } from './desktop-bridge.ts'
@@ -58,6 +58,23 @@ export class DesktopCloseController {
     void this.scope.set(DESKTOP_CLOSE_BEHAVIOR_FIELD, behavior).catch((error: unknown) => {
       console.error('[ui-desktop] close preference update failed:', error)
     })
+  }
+
+  /**
+   * Open the native folder picker and persist the picked download directory.
+   * A cancelled picker leaves the stored value untouched.
+   */
+  async pickSessionLogDir(): Promise<void> {
+    const picked = await this.bridge.pickFolder().catch((error: unknown) => {
+      console.error('[ui-desktop] folder picker failed:', error)
+      return null
+    })
+    if (picked === null || picked === '') return
+    try {
+      await this.scope.set(DESKTOP_SESSION_LOG_DIR_FIELD, picked)
+    } catch (error) {
+      console.error('[ui-desktop] download directory update failed:', error)
+    }
   }
 
   /**
@@ -127,6 +144,7 @@ export class DesktopCloseController {
   private syncSettings(): void {
     const snapshot = this.scope.getSnapshot()
     const behavior = snapshot.value?.closeBehavior ?? DEFAULT_DESKTOP_CLOSE_BEHAVIOR
-    this.actions?.sync(behavior, snapshot.writable, this.revision++)
+    const sessionLogDir = snapshot.value?.sessionLogDir ?? ''
+    this.actions?.sync(behavior, sessionLogDir, snapshot.writable, this.revision++)
   }
 }

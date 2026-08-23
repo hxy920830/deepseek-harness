@@ -1,12 +1,14 @@
 /** Shared interaction state for the desktop settings row and close dialog. */
 
-import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
+import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { DesktopCloseBehavior } from '../settings.ts'
 
 /** Desktop close UI state. */
 export interface DesktopUiState {
   /** Current durable close behavior, or the safe default while settings load. */
   behavior: DesktopCloseBehavior
+  /** Durable Session log download directory ('' = platform default). */
+  sessionLogDir: string
   /** Whether the Host settings provider accepts writes. */
   writable: boolean
   /** Whether the native window has one close request awaiting user input. */
@@ -21,7 +23,13 @@ export interface DesktopUiState {
 
 /** Store actions used by the controller and components. */
 export type DesktopUiActions = {
-  sync: (draft: DesktopUiState, behavior: DesktopCloseBehavior, writable: boolean, revision: number) => void
+  sync: (
+    draft: DesktopUiState,
+    behavior: DesktopCloseBehavior,
+    sessionLogDir: string,
+    writable: boolean,
+    revision: number,
+  ) => void
   showPrompt: (draft: DesktopUiState, failed?: boolean) => void
   setBusy: (draft: DesktopUiState, busy: boolean) => void
   dismissPrompt: (draft: DesktopUiState) => void
@@ -35,12 +43,13 @@ export type DesktopUiActions = {
 export function createDesktopUiStore(): EngineStoreHandle<DesktopUiState, DesktopUiActions> {
   return defineStore({
     init: (): DesktopUiState => ({
-      behavior: 'ask', writable: false, promptOpen: false, busy: false, failed: false, revision: -1,
+      behavior: 'ask', sessionLogDir: '', writable: false, promptOpen: false, busy: false, failed: false, revision: -1,
     }),
     actions: {
-      sync: (draft, behavior: DesktopCloseBehavior, writable: boolean, revision: number) => {
+      sync: (draft, behavior: DesktopCloseBehavior, sessionLogDir: string, writable: boolean, revision: number) => {
         if (revision <= draft.revision) return
         draft.behavior = behavior
+        draft.sessionLogDir = sessionLogDir
         draft.writable = writable
         draft.revision = revision
       },

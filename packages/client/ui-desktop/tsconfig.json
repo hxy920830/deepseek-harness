@@ -9,11 +9,13 @@
   ],
   "references": [
     { "path": "../locale" },
-    { "path": "../runtime" },
+    { "path": "../store" },
     { "path": "../ui-primitives" },
     { "path": "../ui-layout" },
     { "path": "../ui-settings" },
+    { "path": "../ui-settings-general" },
     { "path": "../ui-slots" },
+    { "path": "../ui-renderer" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../settings/settings" },
     { "path": "../../runtime-diagnostics/invariants" }

@@ -8,6 +8,8 @@ import { CloseBehaviorRow } from '../src/client/CloseBehaviorRow.tsx'
 import type { CloseBehaviorRowProps } from '../src/client/CloseBehaviorRow.tsx'
 import { CloseDialog } from '../src/client/CloseDialog.tsx'
 import type { CloseDialogProps } from '../src/client/CloseDialog.tsx'
+import { SessionLogDirRow } from '../src/client/SessionLogDirRow.tsx'
+import type { SessionLogDirRowProps } from '../src/client/SessionLogDirRow.tsx'
 import { createDesktopUiStore } from '../src/client/store.ts'
 
 afterEach(cleanup)
@@ -21,7 +23,7 @@ function translator(dictionary: Record<DesktopKey, string>): CloseDialogProps['t
 
 function renderRow() {
   const store = createDesktopUiStore().create()
-  store.actions.sync('ask', true, 0)
+  store.actions.sync('ask', '', true, 0)
   const setBehavior = vi.fn()
   render(<CloseBehaviorRow {...({
     ...kit,
@@ -31,6 +33,21 @@ function renderRow() {
     setBehavior,
   } satisfies CloseBehaviorRowProps)} />)
   return { setBehavior }
+}
+
+function renderDirRow(overrides: Partial<SessionLogDirRowProps> = {}) {
+  const store = createDesktopUiStore().create()
+  store.actions.sync('ask', 'D:\\logs', true, 0)
+  const pick = vi.fn(() => Promise.resolve())
+  render(<SessionLogDirRow {...({
+    ...kit,
+    actions: store.actions,
+    useStore: bindSnapshotSelector(store),
+    t: translator(zh),
+    pick,
+    ...overrides,
+  } satisfies SessionLogDirRowProps)} />)
+  return { pick }
 }
 
 function renderDialog(dictionary: Record<DesktopKey, string>) {
@@ -58,6 +75,41 @@ describe('CloseBehaviorRow', () => {
 
     expect(setBehavior).toHaveBeenCalledWith('minimize')
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
+  })
+})
+
+describe('SessionLogDirRow', () => {
+  it('shows the configured directory and opens the picker from the folder button', () => {
+    const { pick } = renderDirRow()
+    const trigger = screen.getByRole('button', { name: '选择文件夹' })
+
+    expect(screen.getByText('Session 日志保存位置')).toBeTruthy()
+    expect(trigger.textContent).toContain('D:\\logs')
+    fireEvent.click(trigger)
+
+    expect(pick).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to the default label when no directory is stored and stays inert while read-only', () => {
+    renderDirRow()
+    cleanup()
+
+    const store = createDesktopUiStore().create()
+    store.actions.sync('ask', '', false, 0)
+    const pick = vi.fn(() => Promise.resolve())
+    render(<SessionLogDirRow {...({
+      ...kit,
+      actions: store.actions,
+      useStore: bindSnapshotSelector(store),
+      t: translator(zh),
+      pick,
+    } satisfies SessionLogDirRowProps)} />)
+
+    const trigger = screen.getByRole('button', { name: '选择文件夹' })
+    expect(trigger.textContent).toContain('默认下载位置')
+    expect((trigger as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(trigger)
+    expect(pick).not.toHaveBeenCalled()
   })
 })
 

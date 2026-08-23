@@ -20,16 +20,25 @@ function bridgeBench() {
   const resolve = vi.fn<DesktopBridge['resolve']>(
     async (_requestId: number, _action: DesktopCloseAction) => undefined,
   )
+  const pickFolder = vi.fn<DesktopBridge['pickFolder']>(async () => null)
+  const saveSessionLog = vi.fn<DesktopBridge['saveSessionLog']>(async () => '')
+  const revealSessionLog = vi.fn<DesktopBridge['revealSessionLog']>(async () => undefined)
+  const openSessionLog = vi.fn<DesktopBridge['openSessionLog']>(async () => undefined)
   const bridge: DesktopBridge = {
     available: () => true,
     listenCloseRequested,
     ready,
     resolve,
+    pickFolder,
+    saveSessionLog,
+    revealSessionLog,
+    openSessionLog,
   }
   return {
     bridge,
     order,
     unlisten,
+    pickFolder,
     emit: (request: DesktopCloseRequest) => {
       if (listener === undefined) throw new Error('close listener is not installed')
       listener(request)
@@ -37,10 +46,13 @@ function bridgeBench() {
   }
 }
 
-function controllerBench(closeBehavior: DesktopSettings['closeBehavior'] = 'ask') {
+function controllerBench(
+  closeBehavior: DesktopSettings['closeBehavior'] = 'ask',
+  sessionLogDir: string = '',
+) {
   const host = stubSettingsScope<DesktopSettings>()
   host.publish({
-    status: 'ready', value: { closeBehavior }, revision: 1, writable: true,
+    status: 'ready', value: { closeBehavior, sessionLogDir }, revision: 1, writable: true,
   })
   const native = bridgeBench()
   const store = createDesktopUiStore().create()
@@ -135,5 +147,28 @@ describe('DesktopCloseController', () => {
     expect(b.native.bridge.resolve).toHaveBeenCalledWith(12, 'cancel')
     expect(b.native.unlisten).toHaveBeenCalledOnce()
     expect(b.host.listenerCount()).toBe(0)
+  })
+
+  it('projects the durable session log directory into the shared store', async () => {
+    const b = controllerBench('ask', 'D:\\session-logs')
+    await vi.waitFor(() => { expect(b.native.bridge.ready).toHaveBeenCalledOnce() })
+
+    expect(b.store.getSnapshot().sessionLogDir).toBe('D:\\session-logs')
+    await b.controller.dispose()
+  })
+
+  it('persists a picked download directory and ignores a cancelled picker', async () => {
+    const b = controllerBench()
+    await vi.waitFor(() => { expect(b.native.bridge.ready).toHaveBeenCalledOnce() })
+    b.native.pickFolder.mockResolvedValueOnce(null)
+
+    await b.controller.pickSessionLogDir()
+    expect(b.host.set).not.toHaveBeenCalled()
+
+    b.native.pickFolder.mockResolvedValueOnce('E:\\downloads')
+    await b.controller.pickSessionLogDir()
+
+    expect(b.host.set).toHaveBeenCalledWith('sessionLogDir', 'E:\\downloads')
+    await b.controller.dispose()
   })
 })

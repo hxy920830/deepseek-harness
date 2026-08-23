@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
@@ -9,7 +9,8 @@ import { CloseBehaviorRow } from '../src/client/CloseBehaviorRow.tsx'
 import type { CloseBehaviorRowInjected } from '../src/client/CloseBehaviorRow.tsx'
 import { CloseDialog } from '../src/client/CloseDialog.tsx'
 import type { CloseDialogInjected } from '../src/client/CloseDialog.tsx'
-import type { createDesktopUiStore } from '../src/client/store.ts'
+import { SessionLogDirRow } from '../src/client/SessionLogDirRow.tsx'
+import { createDesktopUiStore } from '../src/client/store.ts'
 
 const tauri = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -118,11 +119,15 @@ describe('ui-desktop client apply', () => {
     await fiber.await()
 
     const row = b.slots.entries(ROW_SLOT).find(entry => entry.component === CloseBehaviorRow)!
+    const dirRow = b.slots.entries(ROW_SLOT).find(entry => entry.component === SessionLogDirRow)!
     const overlay = b.slots.entries(OVERLAY_SLOT).find(entry => entry.component === CloseDialog)!
     expect(row.options).toMatchObject({ id: 'desktop-close-behavior', order: 20 })
+    expect(dirRow.options).toMatchObject({ id: 'desktop-session-log-dir', order: 30 })
     expect(overlay.options).toMatchObject({ id: 'desktop-close-dialog', order: 0 })
     expect(row.locale).toBe('settings.desktop')
     expect(overlay.locale).toBe('settings.desktop')
+    const files = b.ctx.get('desktopSessionFiles')
+    expect(files?.directory()).toBe(null)
 
     const handle = row.store as ReturnType<typeof createDesktopUiStore>
     expect(overlay.store).toBe(handle)

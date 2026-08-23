@@ -19,11 +19,13 @@ English | [中文](README.zh.md)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
+The command is mounted only by the Web bundle. A successful `/export` result triggers the download only in the browser that submitted it; other tabs render the durable command row without repeating the browser side effect. The Header button calls the same controller directly. Both entry paths issue a `HEAD` preflight. Inside the Tauri shell with a directory chosen in General settings (`ui-desktop.sessionLogDir`), the controller fetches the ZIP once and hands it to the optional `desktopSessionFiles` capability for a no-overwrite native save into that folder, publishing the saved path; otherwise the GET URL goes to the browser download manager without buffering the ZIP in JavaScript. Both paths share in-flight collapsing, cancellation of the preflight on plugin disposal, preparation-error handling, and the same Modal.
 
 -----
 
 <a id="use-this-package"></a>
 ## Use this package
+The modal reports preparation, the settled download state, or failure. A natively saved archive shows its absolute path with reveal-in-folder and open actions, then dismisses itself after a few seconds; a browser download flashes its success state before dismissing itself too. Failures stay open until closed. Closing the modal does not cancel an in-flight download and does not reopen it when that operation later settles. One Session admits one active download at a time; repeated gestures share that operation.
 
 Use this package when the Web bundle should let users export a session log. It requires Connection, the command registry, Session query and persistence, and attachments. Mount the plugin, then click `Session log` in the Session Header or type `/export`; the browser downloads `dsh-session-<id>.zip`.
 
@@ -121,8 +123,9 @@ None. The log-only command lifecycle and browser download do not change the deri
 
 These limits define when this package is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
-- **Browser download, not a Host-path writer** — the browser chooses the local destination; no Host path or native folder action is returned.
-- **Preflight reports only pre-stream failures** — a descendant or attachment failure after the browser accepts the GET is reported by the browser download manager, not by the dialog.
+- **Browser or native desktop save** — the browser chooses the destination unless a Tauri user configures `ui-desktop.sessionLogDir`; the native path saves into that folder without overwriting an existing archive.
+- **Preflight reports early failures** — a descendant or attachment failure after the browser accepts the GET is reported by the browser download manager; a native save reports GET and write failures in the dialog.
+- **Archive bytes cross desktop IPC as JSON** — native saves encode the ZIP as a JSON number array before Rust writes it, which adds overhead for large exports.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -131,10 +134,6 @@ These limits define when this package is a poor fit or needs special operational
 <summary>Working context for maintainers — click to expand</summary>
 
 This Dev Note is working context for maintainers: open design questions and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked pages.
-
-#### Future: export destinations beyond the browser
-
-The download is deliberately browser-scoped; a Host-path or native folder export would need a new endpoint contract and a decision on where the ZIP lands.
 
 </details>
 

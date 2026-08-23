@@ -43,6 +43,187 @@ impl CloseAction {
     }
 }
 
+const SESSION_ZIP_PREFIX: &str = "dsh-session-";
+const SESSION_ZIP_SUFFIX: &str = ".zip";
+const SESSION_ARCHIVE_COLLISION_LIMIT: u32 = 1000;
+
+/// Validate a download directory plus convention-checked archive name against
+/// the renderer-supplied pair, so the native commands can never address an
+/// arbitrary filesystem path.
+fn resolve_session_zip(dir: &str, filename: &str) -> Result<PathBuf, String> {
+    let Some(stem) = filename
+        .strip_prefix(SESSION_ZIP_PREFIX)
+        .and_then(|rest| rest.strip_suffix(SESSION_ZIP_SUFFIX))
+    else {
+        return Err(format!(
+            "session log archive name must match {SESSION_ZIP_PREFIX}<id>{SESSION_ZIP_SUFFIX}: {filename}"
+        ));
+    };
+    if stem.is_empty()
+        || !stem
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    {
+        return Err(format!(
+            "session log archive id supports ASCII letters, digits, '_' and '-': {filename}"
+        ));
+    }
+    let dir_path = Path::new(dir);
+    if !dir_path.is_absolute() {
+        return Err(format!("session log directory must be absolute: {dir}"));
+    }
+    if !dir_path.is_dir() {
+        return Err(format!("session log directory does not exist: {dir}"));
+    }
+    Ok(dir_path.join(filename))
+}
+
+/// Write one archive without overwriting, uniquifying the name on collision
+/// (`name (1).zip`, `name (2).zip`, …).
+fn save_session_archive(target: PathBuf, bytes: &[u8]) -> Result<PathBuf, String> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| format!("session log archive has no parent directory: {}", target.display()))?
+        .to_path_buf();
+    let stem = target
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .ok_or_else(|| format!("session log archive has no file name: {}", target.display()))?;
+    let extension = target.extension().map(|ext| ext.to_string_lossy().into_owned());
+
+    for attempt in 0..=SESSION_ARCHIVE_COLLISION_LIMIT {
+        let candidate = if attempt == 0 {
+            target.clone()
+        } else {
+            match &extension {
+                Some(extension) => parent.join(format!("{stem} ({attempt}).{extension}")),
+                None => parent.join(format!("{stem} ({attempt})")),
+            }
+        };
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&candidate) {
+            Ok(mut file) => {
+                file.write_all(bytes)
+                    .map_err(|error| format!("failed to write {}: {error}", candidate.display()))?;
+                return Ok(candidate);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "failed to create {}: {error}",
+                    candidate.display()
+                ))
+            }
+        }
+    }
+    Err(format!(
+        "no free session log archive name within {SESSION_ARCHIVE_COLLISION_LIMIT} attempts at {}",
+        target.display()
+    ))
+}
+
+#[cfg(windows)]
+fn reveal_session_archive(path: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    Command::new("explorer")
+        .raw_arg(format!("/select,\"{}\"", path.display()))
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("failed to reveal {} in File Explorer: {error}", path.display()))
+}
+
+#[cfg(windows)]
+fn open_session_archive(path: &Path) -> Result<(), String> {
+    Command::new("explorer")
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("failed to open {}: {error}", path.display()))
+}
+
+#[cfg(not(windows))]
+fn reveal_session_archive(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(not(target_os = "macos"))]
+    let program = "xdg-open";
+
+    let mut command = Command::new(program);
+    if cfg!(target_os = "macos") {
+        command.arg("-R");
+    } else if let Some(parent) = path.parent() {
+        command.arg(parent);
+    }
+    command.arg(path);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("failed to reveal {}: {error}", path.display()))
+}
+
+#[cfg(not(windows))]
+fn open_session_archive(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(not(target_os = "macos"))]
+    let program = "xdg-open";
+
+    Command::new(program)
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("failed to open {}: {error}", path.display()))
+}
+
+#[tauri::command]
+fn desktop_pick_folder(window: tauri::Window) -> Option<String> {
+    // Native dialogs must open on the main thread; the command pool thread has
+    // no COM apartment for them.
+    let (sender, receiver) = mpsc::channel();
+    if let Err(error) = window.app_handle().run_on_main_thread(move || {
+        let picked = rfd::FileDialog::new()
+            .set_title("Select Session log download location")
+            .pick_folder()
+            .map(|folder| folder.to_string_lossy().into_owned());
+        let _ = sender.send(picked);
+    }) {
+        eprintln!("desktop_pick_folder could not reach the main thread: {error}");
+        return None;
+    }
+    match receiver.recv() {
+        Ok(picked) => picked,
+        Err(error) => {
+            eprintln!("desktop_pick_folder lost its dialog result: {error}");
+            None
+        }
+    }
+}
+
+#[tauri::command]
+fn desktop_save_session_log(dir: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+    let target = resolve_session_zip(&dir, &filename)?;
+    let saved = save_session_archive(target, &bytes)?;
+    Ok(saved.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn desktop_reveal_session_log(dir: String, filename: String) -> Result<(), String> {
+    let path = resolve_session_zip(&dir, &filename)?;
+    if !path.is_file() {
+        return Err(format!("session log archive does not exist: {}", path.display()));
+    }
+    reveal_session_archive(&path)
+}
+
+#[tauri::command]
+fn desktop_open_session_log(dir: String, filename: String) -> Result<(), String> {
+    let path = resolve_session_zip(&dir, &filename)?;
+    if !path.is_file() {
+        return Err(format!("session log archive does not exist: {}", path.display()));
+    }
+    open_session_archive(&path)
+}
+
 fn begin_once(flag: &AtomicBool) -> bool {
     flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_ok()
@@ -386,7 +567,11 @@ pub fn run() {
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             desktop_ready,
-            desktop_resolve_close
+            desktop_resolve_close,
+            desktop_pick_folder,
+            desktop_save_session_log,
+            desktop_reveal_session_log,
+            desktop_open_session_log
         ])
         .setup(|app| {
             let (child, url) = start_runtime(app.handle())
@@ -439,7 +624,10 @@ pub fn run() {
 mod tests {
     use std::sync::atomic::AtomicBool;
 
-    use super::{begin_once, readiness_url, same_origin, CloseAction, CloseHandshake};
+    use super::{
+        begin_once, readiness_url, resolve_session_zip, same_origin, save_session_archive,
+        CloseAction, CloseHandshake,
+    };
 
     #[test]
     fn accepts_only_nonzero_loopback_readiness_urls() {
@@ -518,5 +706,58 @@ mod tests {
         assert!(!begin_once(&flag));
         flag.store(false, std::sync::atomic::Ordering::Release);
         assert!(begin_once(&flag));
+    }
+
+    #[test]
+    fn resolves_only_convention_session_archive_names() {
+        let dir = std::env::temp_dir();
+        let dir_text = dir.to_string_lossy().into_owned();
+
+        let resolved = resolve_session_zip(&dir_text, "dsh-session-abc_123.zip").expect("valid name");
+        assert_eq!(resolved, dir.join("dsh-session-abc_123.zip"));
+
+        for filename in [
+            "session-dsh-a.zip",
+            "dsh-session-.zip",
+            "dsh-session-a/b.zip",
+            "dsh-session-a\\b.zip",
+            "dsh-session-a b.zip",
+            "dsh-session-a.txt",
+            "dsh-session-a",
+        ] {
+            assert!(
+                resolve_session_zip(&dir_text, filename).is_err(),
+                "expected rejection of {filename}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_relative_or_missing_directories() {
+        assert!(resolve_session_zip("relative/path", "dsh-session-a.zip").is_err());
+
+        let missing = std::env::temp_dir().join(format!("dsh-missing-{}", std::process::id()));
+        assert!(resolve_session_zip(&missing.to_string_lossy(), "dsh-session-a.zip").is_err());
+    }
+
+    #[test]
+    fn saves_session_archives_without_overwriting() {
+        let dir = std::env::temp_dir().join(format!("dsh-archive-{}-{:?}", std::process::id(), std::thread::current().id()));
+        std::fs::create_dir_all(&dir).expect("scratch directory");
+
+        let target = dir.join("dsh-session-demo.zip");
+        let first = save_session_archive(target.clone(), b"one").expect("first write");
+        assert_eq!(first, target);
+        assert_eq!(std::fs::read(&first).expect("read back"), b"one");
+
+        let second = save_session_archive(target.clone(), b"two").expect("uniquified write");
+        assert_eq!(second.file_name().unwrap(), "dsh-session-demo (1).zip");
+        assert_eq!(std::fs::read(&second).expect("read back"), b"two");
+        assert_eq!(std::fs::read(&first).expect("first untouched"), b"one");
+
+        for path in [first, second] {
+            let _ = std::fs::remove_file(path);
+        }
+        let _ = std::fs::remove_dir(dir);
     }
 }
