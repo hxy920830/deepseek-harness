@@ -22,7 +22,12 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+// Type-only: pulls the settings section SlotMap merge.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import {
+  ArchivedSessionsSettingsSection, type ArchivedSessionsSettingsInjected,
+} from './ArchivedSessionsPage.tsx'
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
@@ -95,6 +100,8 @@ export function apply(ctx: Context): void {
     subscribe: listener => ctx.on('connection/reset', listener),
   }
   const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
+  const listArchivedSessions = (): Promise<readonly import('@deepseek-ai/dsh-api-workspace-controller/types').ArchivedSessionView[]> =>
+    ctx.workspaces.listArchivedSessions()
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
@@ -133,6 +140,11 @@ export function apply(ctx: Context): void {
     createWorkspace: input => workspaces.create(input),
     hooks: { directoryFlow: pickerFlowSource },
   })
+  const archivedSessionsInjected = (): ArchivedSessionsSettingsInjected => ({
+    loadArchivedSessions: listArchivedSessions,
+    restoreSession: async (sessionId) => { await workspaces.unarchiveSession(sessionId) },
+    deleteArchivedSession: async (sessionId) => { await workspaces.deleteArchivedSession(sessionId) },
+  })
   // Each registration declares its directory-flow child in the same call;
   // slot injection follows both the owner and declaration HMR lifetimes.
   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
@@ -154,4 +166,12 @@ export function apply(ctx: Context): void {
     },
     WorkspacePicker,
   ))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'archived-sessions',
+    order: 30,
+    label: () => ctx.locale.bind(NS)('archive.nav'),
+    locale: NS,
+    inject: archivedSessionsInjected,
+  }, ArchivedSessionsSettingsSection))
 }

@@ -315,6 +315,24 @@ function processPresentationInputChanged(
     && previous.data.step !== next.data.step
 }
 
+/** Fold same-session user rewrites over the visible conversation projection. */
+function foldUserRewrites(nodes: readonly ChatConversationViewNode[]): ChatConversationViewNode[] {
+  const folded: ChatConversationViewNode[] = []
+  for (const raw of [...nodes].sort(
+    (left, right) => left.anchorSeq - right.anchorSeq || left.key.localeCompare(right.key),
+  )) {
+    const node = raw as ChatNode
+    const start = node.kind === 'user' ? node.data.rewriteFromSeq : undefined
+    if (start !== undefined) {
+      for (let index = folded.length - 1; index >= 0; index--) {
+        if ((folded[index]?.anchorSeq ?? -1) >= start) folded.splice(index, 1)
+      }
+    }
+    folded.push(raw)
+  }
+  return folded
+}
+
 interface TurnProcessPresentation {
   readonly control?: ChatNode<'turn-process'>
   readonly openingHumanAnchor?: number
@@ -977,7 +995,7 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
     readonly nodes: readonly ChatConversationViewNode[]
     readonly timeline: ConversationTimelineSnapshot
   }): ChatSnapshot {
-    const nodes = this.skillNames.replace(this.referenceLabels.replace(input.nodes))
+    const nodes = this.skillNames.replace(this.referenceLabels.replace(foldUserRewrites(input.nodes)))
     this.store.replace(nodes)
     this.order = orderedVisibleChatNodes(nodes).map(node => node.key)
     this.locations.rebuild(this.order, this.store)
@@ -1014,6 +1032,14 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
       }
     }
     this.store.upsert(upserts)
+    const rewrote = upserts.some((raw) => {
+      const node = raw as ChatNode
+      return node.kind === 'user' && node.data.rewriteFromSeq !== undefined
+    })
+    if (rewrote) {
+      this.store.replace(foldUserRewrites(this.store.values()))
+      structural = true
+    }
     if (structural) {
       const next = orderedVisibleChatNodes(this.store.values()).map(node => node.key)
       this.order = sameReferences(this.order, next) ? this.order : next
@@ -1027,7 +1053,9 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
       this.navigation.touch(turnsOf(contentOnly), this.locations, this.store)
     }
     this.timeline = input.timeline
-    const snapshot = this.snapshot(input.timeline, this.legacy.apply(upserts, input.timeline))
+    const snapshot = this.snapshot(input.timeline, rewrote
+      ? this.legacy.replace(this.store.values(), input.timeline)
+      : this.legacy.apply(upserts, input.timeline))
     this.store.publish()
     return snapshot
   }

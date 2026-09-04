@@ -51,6 +51,13 @@ export interface IConversation {
    */
   send(text: string): Promise<void>
   /**
+   * Replace one historical prompt and continue in the same Session.
+   * @param seq - sequence number of the historical user message.
+   * @param text - replacement prompt text.
+   * @returns the Host result, including a business failure when rejected.
+   */
+  rewritePrompt(seq: number, text: string): Promise<{ ok: boolean; error?: { message: string } }>
+  /**
    * Apply one edit, remove, or strict steer operation to a pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
    * @param action - requested queue operation.
@@ -209,6 +216,12 @@ export class ConversationController extends Service implements IConversation {
     const session = this.scopedSession('send')
     const result = await session.prompt([{ type: 'text', text }], 'queue')
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /** Replace one admitted prompt without creating a child Session. */
+  async rewritePrompt(seq: number, text: string): Promise<{ ok: boolean; error?: { message: string } }> {
+    const result = await this.scopedSession('rewritePrompt').rewritePrompt(seq, text)
+    return result.ok ? { ok: true } : { ok: false, error: { message: result.error.message } }
   }
 
   /**

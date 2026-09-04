@@ -38,6 +38,10 @@ export type WorkspaceRecord = z.infer<typeof workspaceRecord>
 const workspacePendingMutation = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('create'), workspaceId }),
   z.object({ operation: z.literal('delete'), workspaceId }),
+  z.object({
+    operation: z.literal('delete-sessions'),
+    sessionIds: z.array(z.string().transform(value => brandString<SessionId>(value))).min(1),
+  }),
 ])
 
 /**

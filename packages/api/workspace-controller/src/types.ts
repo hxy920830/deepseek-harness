@@ -28,6 +28,8 @@ export interface WorkspaceView {
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
+    /** A live Session belongs to another Agent owner. */
+    'session/agent-busy': { readonly reason: string; readonly sessionId?: SessionId }
     /** The requested directory cannot back a Workspace. */
     'workspace/invalid-path': { readonly path: string }
     /** Another Workspace already uses the requested name. */
@@ -107,6 +109,26 @@ export interface WorkspaceArchiveSessionRequest {
 /** Complete archived Session set after a mutation. */
 export interface WorkspaceArchiveValue {
   readonly archivedSessionIds: readonly SessionId[]
+}
+
+/** One archived Session projected for the archive-management surface. */
+export interface ArchivedSessionView {
+  readonly sessionId: SessionId
+  readonly title: string
+  readonly updatedAt: number
+  readonly cwd?: string
+  readonly parentSessionId?: SessionId
+  readonly origin?: 'subagent'
+}
+
+/** Complete archived Session listing in descending activity order. */
+export interface WorkspaceArchivedSessionsValue {
+  readonly items: readonly ArchivedSessionView[]
+}
+
+/** Archived Session identity used by restore and permanent deletion commands. */
+export interface WorkspaceArchivedSessionRequest {
+  readonly sessionId: SessionId
 }
 
 /** Complete reconnect baseline for Workspace browser state. */

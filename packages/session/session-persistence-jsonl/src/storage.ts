@@ -424,6 +424,15 @@ export class JsonlBackendTracker {
   }
 
   /**
+   * Whether this backend still holds a write claim for the session id.
+   * @param id - session to test.
+   * @returns true while the backend owns the session's write claim.
+   */
+  isOwned(id: SessionId): boolean {
+    return this.writers.has(id)
+  }
+
+  /**
    * Iterate the pending sessions for listing.
    * @returns the pending entries, keyed by session id.
    */

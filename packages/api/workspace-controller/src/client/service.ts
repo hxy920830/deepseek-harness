@@ -4,7 +4,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
-import type { WorkspaceView } from '../types.ts'
+import type { ArchivedSessionView, WorkspaceView } from '../types.ts'
 import type { ClientWorkspaceModel, WorkspaceSnapshot } from './model.ts'
 
 /** Structured create failure for callers that distinguish Host business errors. */
@@ -62,6 +62,21 @@ export interface IWorkspaces {
    * @param sessionId - Session to archive.
    */
   archiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Read archived Session views for the archive-management surface.
+   * @returns archived Session views in Host order.
+   */
+  listArchivedSessions(): Promise<readonly ArchivedSessionView[]>
+  /**
+   * Restore one archived Session.
+   * @param sessionId - archived Session to restore.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Permanently delete one archived Session.
+   * @param sessionId - archived Session to delete.
+   */
+  deleteArchivedSession(sessionId: SessionId): Promise<void>
   /**
    * Move a Session within one Workspace account.
    * @param workspaceId - owning Workspace.
@@ -124,6 +139,22 @@ export class WorkspaceController extends Service implements IWorkspaces {
     const result = await this.model.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     if (!result.ok) throw commandError('move', result.error)
     return result.value.workspace
+  }
+
+  async listArchivedSessions(): Promise<readonly ArchivedSessionView[]> {
+    const result = await this.model.listArchivedSessions()
+    if (!result.ok) throw commandError('archive listing', result.error)
+    return result.value.items
+  }
+
+  async unarchiveSession(sessionId: SessionId): Promise<void> {
+    const result = await this.model.unarchiveSession(sessionId)
+    if (!result.ok) throw commandError('unarchive', result.error)
+  }
+
+  async deleteArchivedSession(sessionId: SessionId): Promise<void> {
+    const result = await this.model.deleteArchivedSession(sessionId)
+    if (!result.ok) throw commandError('archive deletion', result.error)
   }
 }
 

@@ -249,7 +249,7 @@ export class SessionCommandController {
     const composition = await this.agents.composeAgent(this.agents.presetForObservation(source))
     try {
       const { provider, model } = this.ctx.agentDefaultModel.currentSelection()
-      await this.ctx.agents.create({
+      const handle = await this.ctx.agents.create({
         sessionId: childId,
         seed: source.events.slice(0, cut),
         inheritedEventCount: cut,
@@ -264,6 +264,7 @@ export class SessionCommandController {
         agentOptions: { provider, model },
         setup: composition.setup,
       })
+      this.agents.adoptHandle(handle)
     } catch (error) {
       throw new RemoteError(
         'gateway/internal',
@@ -301,6 +302,27 @@ export class SessionCommandController {
         { value: request.clientTimeZone },
       )
     }
+    if (request.rewriteFromSeq !== undefined
+      && (!Number.isSafeInteger(request.rewriteFromSeq)
+        || request.rewriteFromSeq < 0
+        || Object.is(request.rewriteFromSeq, -0))) {
+      throw new RemoteError(
+        'gateway/bad-request',
+        'rewriteFromSeq must be a non-negative safe integer',
+        {},
+      )
+    }
+    const rewriteRequested = request.rewriteFromSeq !== undefined
+    const rewriteContent = request.content.length > 0
+      && request.content.every(part => part.type === 'text')
+      && request.content.some(part => part.text.trim() !== '')
+    if (rewriteRequested && (request.mode !== 'queue' || !rewriteContent)) {
+      throw new RemoteError(
+        'session/agent-busy',
+        'history rewrites accept queued text prompts only',
+        { reason: 'REWRITE_INPUT_UNSUPPORTED' },
+      )
+    }
     const agent = await this.resolveAgent(request.sessionId)
     if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
     const selection = this.agents.selectionFor(agent).current
@@ -311,14 +333,16 @@ export class SessionCommandController {
         { provider: selection.provider, model: selection.model },
       )
     }
-    const source: MessageSource = {
-      kind: 'user',
-      rpcId: request.requestId,
-      ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
-    }
     const hasImage = request.content.some(part => part.type === 'image')
     const admit = async (): Promise<SessionPromptValue> => {
       try {
+        if (rewriteRequested && agent.status !== 'idle') {
+          throw new RemoteError(
+            'session/agent-busy',
+            'history can be edited only while the session is idle',
+            { reason: 'REWRITE_REQUIRES_IDLE' },
+          )
+        }
         if (hasImage) {
           const current = this.agents.selectionFor(agent).current
           const model = await this.ctx.llm.resolveModelInfo(current.provider, current.model)
@@ -335,7 +359,6 @@ export class SessionCommandController {
           receiptId => this.ctx.fileUploads.resolve(agent, receiptId),
         )
         const content = await this.ctx.attachments.admitPromptContent(admission.content)
-        const message: UserMessage = createUserMessage({ content, source })
         if (this.ctx.agents.get(agent.id) !== agent) {
           throw new RemoteError(
             'session/not-found',
@@ -344,8 +367,59 @@ export class SessionCommandController {
           )
         }
         using binding = this.ctx.fileUploads.bindPrompt(agent, admission.receiptIds, request.requestId)
-        if (request.mode === 'steer') agent.steer(message)
-        else agent.followup(message)
+        if (!rewriteRequested) {
+          const source: MessageSource = {
+            kind: 'user',
+            rpcId: request.requestId,
+            ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
+          }
+          const message: UserMessage = createUserMessage({ content, source })
+          if (request.mode === 'steer') agent.steer(message)
+          else agent.followup(message)
+        } else {
+          await agent.runMaintenance((signal) => {
+            signal.throwIfAborted()
+            if (agent.inbox.hasPending) {
+              throw new RemoteError(
+                'session/agent-busy',
+                'history can be edited only with an empty inbox',
+                { reason: 'REWRITE_REQUIRES_IDLE' },
+              )
+            }
+            const startSeq = SessionSeq(request.rewriteFromSeq as number)
+            const nodes = [...agent.session.surface.nodes]
+            const startIndex = nodes.indexOf(startSeq)
+            const target = agent.session.eventAt(startSeq)
+            if (startIndex < 0 || target?.type !== 'user/message'
+              || target.data.source.kind !== 'user'
+              || target.data.content.length === 0
+              || !target.data.content.every(part => part.type === 'text')
+              || !target.data.content.some(part => part.text.trim() !== '')) {
+              throw new RemoteError(
+                'session/agent-busy',
+                'the selected user message is no longer editable',
+                { reason: 'REWRITE_TARGET_INVALID' },
+              )
+            }
+            const shadowedSeqs = nodes.slice(startIndex)
+            const endSeq = shadowedSeqs.at(-1)
+            if (endSeq === undefined) {
+              throw new RemoteError(
+                'session/agent-busy',
+                'the selected user message has no surface suffix',
+                { reason: 'REWRITE_TARGET_INVALID' },
+              )
+            }
+            const source: MessageSource = {
+              kind: 'user',
+              rpcId: request.requestId,
+              rewrite: { startSeq, endSeq, shadowedSeqs },
+              ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
+            }
+            agent.followup(createUserMessage({ content, source }))
+            return Promise.resolve()
+          })
+        }
         binding.commit()
       } catch (error) {
         if (remoteErrorOf(error) !== undefined) throw error

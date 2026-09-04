@@ -13,7 +13,7 @@ import {
   sessionFormatCatalog,
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { readdirSync, type Dirent } from 'node:fs'
-import { open, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, mkdir, readdir, realpath, link, lstat, rm, rmdir, stat, truncate, unlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
@@ -21,10 +21,10 @@ import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
-  SessionAlreadyExistsError, SessionPersistenceNotFoundError,
+  SessionAlreadyExistsError, SessionAlreadyOwnedError, SessionPersistenceNotFoundError,
   assertStoredId, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
   type SessionAccess, type SessionHandle,
-  type SessionLocation, type SessionPersistenceCreateOptions,
+  type SessionLocation, type SessionPersistenceCreateOptions, type SessionPersistenceDeleteResult,
   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
@@ -305,6 +305,55 @@ class JsonlSessionPersistence extends SessionPersistence {
    */
   flush(): Promise<void> {
     return this.tracker.flushAll()
+  }
+
+  /** Delete every canonical generation for one cold session. */
+  async delete(id: SessionId): Promise<SessionPersistenceDeleteResult> {
+    await this.ensureRootEncoding()
+    if (this.tracker.isOwned(id)) {
+      throw new SessionAlreadyOwnedError(id)
+    }
+
+    const directories: string[] = []
+    for (const project of await this.listProjectDirs()) {
+      const dir = join(project, encodeSegment(id))
+      let identity
+      try {
+        identity = await lstat(dir)
+      } catch (error: unknown) {
+        if (isENOENT(error)) continue
+        throw error
+      }
+      if (identity.isSymbolicLink()) {
+        throw new Error(`refusing to delete session "${id}" through linked directory "${dir}"`)
+      }
+      if (!identity.isDirectory()) continue
+      directories.push(dir)
+    }
+    if (directories.length === 0) return 'absent'
+    if (directories.length > 1) {
+      throw new Error(`duplicate JSONL session id "${id}" appears in multiple project directories`)
+    }
+
+    const dir = directories[0] as string
+    const entries = await readdir(dir, { withFileTypes: true })
+    const generations = entries.filter(entry =>
+      parseGenerationLogFilename(entry.name, this.compression) !== undefined,
+    )
+    if (generations.length === 0) return 'absent'
+    for (const entry of generations) await unlink(join(dir, entry.name))
+    /* v8 ignore next -- POSIX directory fsync has no Windows equivalent in Node. */
+    if (process.platform !== 'win32') await this.syncDirPosix(dir)
+    try {
+      await rmdir(dir)
+      /* v8 ignore next -- POSIX directory fsync has no Windows equivalent in Node. */
+      if (process.platform !== 'win32') await this.syncDirPosix(dirname(dir))
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException | null)?.code
+      if (code !== 'ENOTEMPTY' && code !== 'EEXIST' && code !== 'ENOENT') throw error
+    }
+    this.coldLogMemo.delete(id)
+    return 'removed'
   }
 
   /**

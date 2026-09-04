@@ -45,8 +45,13 @@ export class WorkspaceUnknownSessionError extends Error {
   /**
    * @param sessionId - The unknown session id.
    */
-  constructor(readonly sessionId: SessionId) {
-    super(`cannot archive session '${sessionId}': live sessions and session persistence hold no such session`)
+  constructor(
+    readonly sessionId: SessionId,
+    action: 'archive' | 'unarchive' | 'delete' = 'archive',
+  ) {
+    super(action === 'archive'
+      ? `cannot archive session '${sessionId}': live sessions and session persistence hold no such session`
+      : `cannot ${action} session '${sessionId}': the session is not archived`)
     this.name = 'WorkspaceUnknownSessionError'
   }
 }
@@ -66,6 +71,14 @@ export class WorkspaceOrderInvalidError extends Error {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     workspaceRegistry: WorkspaceRegistry
+  }
+  interface Events {
+    /**
+     * Permanent Session deletion committed in persistence and Workspace accounting.
+     * @param sessionId - deleted root or subagent Session id.
+     * @mode emit
+     */
+    'workspace/session-deleted'(sessionId: SessionId): void
   }
 }
 
@@ -254,6 +267,54 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Restore one archived session without changing its log or Workspace slot.
+   * @param sessionId - archived session to restore.
+   * @returns resolution after durability.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) {
+        throw new WorkspaceUnknownSessionError(sessionId, 'unarchive')
+      }
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
+    })
+  }
+
+  /**
+   * Permanently delete an archived root session and its subagent descendants.
+   * A durable marker resumes persistence and Workspace-account cleanup after interruption.
+   * Ordinary fork descendants remain independent.
+   * @param sessionId - archived root session to delete.
+   * @param releaseLiveOwner - optional Host callback invoked in deletion order before persistence deletion.
+   * @returns resolution after every log and accounting reference is removed.
+   */
+  deleteArchivedSession(
+    sessionId: SessionId,
+    releaseLiveOwner?: (sessionId: SessionId) => Promise<void>,
+  ): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) {
+        throw new WorkspaceUnknownSessionError(sessionId, 'delete')
+      }
+      await this.indexHeaders(await this.listStoredHeaders())
+      const sessionIds = this.deletionClosure(sessionId)
+      if (releaseLiveOwner !== undefined) {
+        for (const candidateId of sessionIds) await releaseLiveOwner(candidateId)
+      }
+      await this.setState({
+        ...state,
+        pendingMutation: { operation: 'delete-sessions', sessionIds },
+      })
+      await this.finishSessionDeletion(sessionIds)
+    })
+  }
+
+  /**
    * Whether a session is live, header-indexed, or present in a fresh
    * persistence listing. Only a definite miss returns false — a failing
    * `sessionPersistence.list()` propagates so storage faults never
@@ -408,6 +469,10 @@ export class WorkspaceRegistry extends Service {
     const state = this.requireState()
     const pending = state.pendingMutation
     if (pending === undefined) return
+    if (pending.operation === 'delete-sessions') {
+      await this.finishSessionDeletion(pending.sessionIds)
+      return
+    }
     if (state.workspaceIds.includes(pending.workspaceId)) {
       throw new Error(
         `workspace domain is inconsistent: pending ${pending.operation} workspace `
@@ -420,6 +485,54 @@ export class WorkspaceRegistry extends Service {
       workspaceIds: state.workspaceIds,
       archivedSessionIds: state.archivedSessionIds,
     })
+  }
+
+  /** Include only product-owned subagent descendants; ordinary forks survive. */
+  private deletionClosure(rootId: SessionId): SessionId[] {
+    const result = [rootId]
+    const included = new Set(result)
+    for (let index = 0; index < result.length; index += 1) {
+      const parentId = result[index] as SessionId
+      for (const header of this.headers.values()) {
+        if (header.origin !== 'subagent'
+          || header.parentSession !== parentId
+          || included.has(header.id)) continue
+        included.add(header.id)
+        result.push(header.id)
+      }
+    }
+    return result
+  }
+
+  /** Complete a marker-owned deletion and publish after all durable writes commit. */
+  private async finishSessionDeletion(sessionIds: readonly SessionId[]): Promise<void> {
+    for (const id of sessionIds) await this.ctx.sessionPersistence.delete(id)
+    const deleting = new Set(sessionIds)
+    for (const [workspaceId, record] of this.requireTable().entries()) {
+      if (!record.sessionIds.some(id => deleting.has(id))) continue
+      const entity = this.entities.get(workspaceId)
+      if (entity !== undefined) {
+        for (const id of sessionIds) await entity.detachSession(id)
+      } else {
+        await this.requireTable().update(workspaceId, current => ({
+          ...current,
+          sessionIds: current.sessionIds.filter(id => !deleting.has(id)),
+          updatedAt: new Date().toISOString(),
+        }))
+      }
+    }
+    const state = this.requireState()
+    await this.setState({
+      initialized: state.initialized,
+      workspaceIds: state.workspaceIds,
+      archivedSessionIds: state.archivedSessionIds.filter(id => !deleting.has(id)),
+    })
+    for (const id of sessionIds) {
+      this.headers.delete(id)
+      this.sessionPaths.delete(id)
+      this.invalidSessionPaths.delete(id)
+      this.ctx.emit('workspace/session-deleted', id)
+    }
   }
 
   private async bootstrap(headers: readonly SessionHeader[]): Promise<void> {

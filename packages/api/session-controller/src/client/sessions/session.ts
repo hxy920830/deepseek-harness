@@ -298,6 +298,29 @@ export class Session implements SessionFace {
     return result
   }
 
+  /** Replace one historical text prompt inside this ordinary Session. */
+  async rewritePrompt(seq: number, text: string): Promise<RemoteResult<{ accepted: true }>> {
+    const address = this.address
+    if (address !== undefined) {
+      return {
+        ok: false,
+        error: new RemoteError(
+          'subagent/not-resumable',
+          'subagent conversations do not support history editing',
+          { childSessionId: address.childSessionId },
+        ),
+      }
+    }
+    return this.remote.session.prompt({
+      requestId: randomUUID() as SessionRequestId,
+      sessionId: this.sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text }],
+      clientTimeZone: resolvedClientTimeZone(),
+      rewriteFromSeq: Math.floor(seq),
+    })
+  }
+
   /**
    * Resolve one image referenced by this session into browser-consumable bytes.
    * @param attachmentId - opaque id found in the folded session log.

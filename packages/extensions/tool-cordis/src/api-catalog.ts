@@ -1577,6 +1577,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['{SessionPersistenceNotFoundError} when the session does not exist.', '{SessionAlreadyOwnedError} for `write` when ownership is taken.'],
       },
       {
+        signature: 'abstract delete(id: SessionId): Promise<SessionPersistenceDeleteResult>',
+        description: 'Permanently delete one cold stored session.\n\nBackends reject an id with active write ownership and return `absent` when no durable session exists. Callers retire live Agent owners separately.',
+        parameters: [{ name: 'id', description: 'the stored session to delete.' }],
+        returns: 'whether a durable session was removed.',
+        throws: ['{SessionAlreadyOwnedError} when a write handle owns the id.'],
+      },
+      {
         signature: 'abstract flush(): Promise<void>',
         description: 'Flush every active write handle owned by this service instance in one durability barrier: each handle\'s routed live events drain durably and its session materializes, exactly as that handle\'s own `SessionHandle.flush` would. Read handles buffer nothing and are untouched. A handle closed concurrently counts as flushed — close itself drains durably.',
         parameters: [],
@@ -2877,6 +2884,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the complete resulting archive set.',
       },
       {
+        signature: '@Remote(\'listArchivedSessions\') listArchivedSessions(_request: Record<never, never>): Promise<WorkspaceArchivedSessionsValue>',
+        description: 'List archived Sessions without activating their Agents.',
+        parameters: [{ name: '_request', description: 'reserved empty request.' }],
+        returns: 'archived Session views ordered by activity.',
+      },
+      {
+        signature: '@Remote(\'unarchiveSession\') unarchiveSession(request: WorkspaceArchivedSessionRequest): Promise<WorkspaceArchiveValue>',
+        description: 'Restore one archived Session to the normal Workspace surfaces.',
+        parameters: [{ name: 'request', description: 'archived Session identity.' }],
+        returns: 'the resulting archive set.',
+      },
+      {
+        signature: '@Remote(\'deleteArchivedSession\') deleteArchivedSession(request: WorkspaceArchivedSessionRequest): Promise<WorkspaceArchiveValue>',
+        description: 'Permanently delete one archived Session and its product-owned descendants.',
+        parameters: [{ name: 'request', description: 'archived Session identity.' }],
+        returns: 'the resulting archive set.',
+      },
+      {
         signature: '@Remote({ mode: \'stream\' }) follow(signal: AbortSignal): AsyncIterable<WorkspaceFollowFrame>',
         description: 'Stream a complete Workspace baseline followed by ordered increments.',
         parameters: [{ name: 'signal', description: 'generation cancellation.' }],
@@ -2924,6 +2949,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Archive one session durably. The session must exist (live or in session persistence); its workspace accounting — or lack of one — is irrelevant. An already archived id resolves without writing.',
         parameters: [{ name: 'sessionId', description: 'The session to archive.' }],
         returns: 'resolution after durability.',
+      },
+      {
+        signature: 'unarchiveSession(sessionId: SessionId): Promise<void>',
+        description: 'Restore one archived session without changing its log or Workspace slot.',
+        parameters: [{ name: 'sessionId', description: 'archived session to restore.' }],
+        returns: 'resolution after durability.',
+      },
+      {
+        signature: 'deleteArchivedSession( sessionId: SessionId, releaseLiveOwner?: (sessionId: SessionId) => Promise<void>, ): Promise<void>',
+        description: 'Permanently delete an archived root session and its subagent descendants. A durable marker resumes persistence and Workspace-account cleanup after interruption. Ordinary fork descendants remain independent.',
+        parameters: [{ name: 'sessionId', description: 'archived root session to delete.' }, { name: 'releaseLiveOwner', description: 'optional Host callback invoked in deletion order before persistence deletion.' }],
+        returns: 'resolution after every log and accounting reference is removed.',
       },
       {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
@@ -3465,6 +3502,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     description: 'A workflow run started — the script\'s meta block validated, the body about to execute. Paired with Events[\'workflow/end\'].',
     parameters: [{ name: 'info', description: 'the run\'s identity snapshot (id + meta).' }],
   },
+  {
+    name: 'workspace/session-deleted',
+    mode: 'emit',
+    signature: '\'workspace/session-deleted\'(sessionId: SessionId): void',
+    summary: 'Permanent Session deletion committed in persistence and Workspace accounting.',
+    description: 'Permanent Session deletion committed in persistence and Workspace accounting.',
+    parameters: [{ name: 'sessionId', description: 'deleted root or subagent Session id.' }],
+  },
 ]
 
 /** Shapes of every exported type the Service and Event signatures reference (transitively), sorted by name. */
@@ -3568,6 +3613,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ApprovalRequestEvent',
     declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'ArchivedSessionView',
+    declaration: 'export interface ArchivedSessionView {\n    readonly sessionId: SessionId;\n    readonly title: string;\n    readonly updatedAt: number;\n    readonly cwd?: string;\n    readonly parentSessionId?: SessionId;\n    readonly origin?: \'subagent\';\n}',
   },
   {
     name: 'AskUserQuestionAnswer',
@@ -5166,6 +5215,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionPersistenceCreateOptions {\n    readonly signal?: AbortSignal;\n    readonly inheritedEventCount?: SessionLogOffset;\n}',
   },
   {
+    name: 'SessionPersistenceDeleteResult',
+    declaration: 'export type SessionPersistenceDeleteResult = \'removed\' | \'absent\';',
+  },
+  {
     name: 'SessionPersistenceListOptions',
     declaration: 'export interface SessionPersistenceListOptions {\n    readonly signal?: AbortSignal;\n}',
   },
@@ -5215,7 +5268,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionPromptRequest',
-    declaration: 'export interface SessionPromptRequest {\n    readonly requestId: SessionRequestId;\n    readonly sessionId: SessionId;\n    readonly mode: \'queue\' | \'steer\';\n    readonly content: readonly PromptContentPart[];\n    readonly clientTimeZone?: string;\n}',
+    declaration: 'export interface SessionPromptRequest {\n    readonly requestId: SessionRequestId;\n    readonly sessionId: SessionId;\n    readonly mode: \'queue\' | \'steer\';\n    readonly content: readonly PromptContentPart[];\n    readonly clientTimeZone?: string;\n    readonly rewriteFromSeq?: number;\n}',
   },
   {
     name: 'SessionPromptValue',
@@ -6276,6 +6329,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Workspace',
     declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
+  },
+  {
+    name: 'WorkspaceArchivedSessionRequest',
+    declaration: 'export interface WorkspaceArchivedSessionRequest {\n    readonly sessionId: SessionId;\n}',
+  },
+  {
+    name: 'WorkspaceArchivedSessionsValue',
+    declaration: 'export interface WorkspaceArchivedSessionsValue {\n    readonly items: readonly ArchivedSessionView[];\n}',
   },
   {
     name: 'WorkspaceArchiveSessionRequest',

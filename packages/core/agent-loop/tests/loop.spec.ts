@@ -464,6 +464,56 @@ describe('agent loop', () => {
     expect(messages[1]!.content).toEqual([{ type: 'text', text: 'hello there' }])
   })
 
+  it('replaces a historical prompt surface in the same Session and drops the old suffix from the next request', async () => {
+    const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('historical-prompt-rewrite'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+
+    send(agent, 'original question')
+    await waitForIdle(ctx, agent)
+    const original = agent.session.snapshotEvents().find(event => (
+      event.type === 'user/message' && event.data.source.kind === 'user'
+    ))
+    if (original?.type !== 'user/message') throw new Error('original user message was not recorded')
+    const shadowedSeqs = [...agent.session.surface.nodes]
+    const session = agent.session
+
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'edited question' }],
+      source: {
+        kind: 'user',
+        rewrite: {
+          startSeq: original.seq,
+          endSeq: shadowedSeqs.at(-1)!,
+          shadowedSeqs,
+        },
+      } as never,
+    }))
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session).toBe(session)
+    const replacement = agent.session.snapshotEvents().find(event => (
+      event.type === 'user/message'
+      && event.data.source.kind === 'user'
+      && 'rewrite' in event.data.source
+    ))
+    expect(replacement).toMatchObject({
+      surfaceOp: { op: 'replace', start: original.seq, end: shadowedSeqs.at(-1) },
+      sourceEventSeqs: shadowedSeqs,
+      data: {
+        content: [{ type: 'text', text: 'edited question' }],
+        source: { rewrite: { startSeq: original.seq, endSeq: shadowedSeqs.at(-1), shadowedSeqs } },
+      },
+    })
+    expect(adapter.requests[1]?.messages.map(message => message.content)).toEqual([
+      [{ type: 'text', text: 'edited question' }],
+    ])
+    expect(userTexts(agent)).toEqual(['original question', 'edited question'])
+  })
+
   it('round-trips tool calls: model requests tool → executes → result in next request', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'ping' }, 'calling echo'),

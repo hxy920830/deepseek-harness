@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { UserRewriteMetadata } from '@deepseek-ai/dsh-llm'
 import type {
   ContextMessageNode, ConversationNodeDefinition, SteeringMessageNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -23,6 +24,12 @@ interface ReferencedSteeringMessageNode extends SteeringMessageNode {
 
 type MessageNode = ReferencedUserMessageNode | ReferencedSteeringMessageNode | ContextMessageNode
 
+function rewriteMetadata(source: { kind: string }): UserRewriteMetadata | undefined {
+  return source.kind === 'user'
+    ? (source as typeof source & { rewrite?: UserRewriteMetadata }).rewrite
+    : undefined
+}
+
 declare module '../contract/chat-nodes.ts' {
   interface ChatNodeDataMap {
     /** Ordinary turn-opening user message. */
@@ -40,12 +47,19 @@ function isCompactionCheckpoint(event: Parameters<ConversationNodeDefinition['ma
   return source.kind === 'plugin' && source.plugin === 'compact'
 }
 
+function isUserRewrite(event: Parameters<ConversationNodeDefinition['match']>[0]): boolean {
+  return event.type === 'user/message'
+    && isReplacementSurfaceEvent(event)
+    && event.data.source.kind === 'user'
+    && rewriteMetadata(event.data.source) !== undefined
+}
+
 /** User, steering, and injected-context message classification Definition. */
 export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
   kind: 'input-message',
   target: 'chat',
   match: event => event.type === 'user/message'
-    && isAppendSurfaceEvent(event)
+    && (isAppendSurfaceEvent(event) || isUserRewrite(event))
     && !isCompactionCheckpoint(event)
     ? { id: String(event.data.id), role: 'start' }
     : null,
@@ -65,6 +79,7 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
     }
     const claimed = reader.previous<InboxState>('inbox-next-step')
       ?.state.currentClaimed.has(String(event.data.id)) === true
+    const rewrite = rewriteMetadata(event.data.source)
     return claimed
       ? {
         kind: 'steering',
@@ -80,6 +95,7 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
         time: event.time,
         content: event.data.content,
         source: event.data.source,
+        ...(rewrite === undefined ? {} : { rewriteFromSeq: rewrite.startSeq }),
       }
   },
   update: context => context.state,

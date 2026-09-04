@@ -259,6 +259,10 @@ function makeHarness(
     read: () => savedScroll,
   }
   const forkAt = vi.fn()
+  const rewriteAt = vi.fn<ChatViewSlotProps['rewriteAt']>(() => Promise.resolve({
+    ok: true,
+    value: { accepted: true },
+  }))
   // Rows and the harness must observe the same chat-store instance.
   const chat = createChatStore().create()
   const transcriptView = createSnapshotStore<TranscriptViewMode>('compact')
@@ -399,6 +403,7 @@ function makeHarness(
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,
+    rewriteAt,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
     t,
@@ -426,7 +431,7 @@ function makeHarness(
     set, setSession: session.set, setChat: chatSource.set, ChatView, props,
     openDetails, openFile, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
-    chatScroll, forkAt, setSelection, toolOwners,
+    chatScroll, forkAt, rewriteAt, setSelection, toolOwners,
     setTranscriptView: (mode: TranscriptViewMode) => { transcriptView.set(mode) },
     setNodeRenderer: (renderer: React.ComponentProps<typeof ChatNodeSeat>['renderSlot']) => {
       nodeSlotOverride = renderer
@@ -541,6 +546,53 @@ describe('Chat node rendering', () => {
 })
 
 describe('ChatView', () => {
+  it('edits one text prompt inline, cancels locally, and submits Enter without forking', async () => {
+    const h = makeHarness({ nodes: [user(1, 'original question'), assistant(2, 'old answer')] })
+    const view = render(<h.ChatView {...h.props} />)
+
+    fireEvent.click(view.getByRole('button', { name: '编辑提问' }))
+    const firstEditor = view.getByRole('textbox') as HTMLTextAreaElement
+    expect(firstEditor.value).toBe('original question')
+    fireEvent.change(firstEditor, { target: { value: 'discard this draft' } })
+    fireEvent.click(view.getByRole('button', { name: '取消' }))
+    expect(view.queryByRole('textbox')).toBeNull()
+    expect(h.rewriteAt).not.toHaveBeenCalled()
+
+    fireEvent.click(view.getByRole('button', { name: '编辑提问' }))
+    const editor = view.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(editor, { target: { value: 'edited question' } })
+    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })
+    expect(h.rewriteAt).not.toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.keyDown(editor, { key: 'Enter' })
+      await Promise.resolve()
+    })
+
+    expect(h.rewriteAt).toHaveBeenCalledWith(1, 'edited question')
+    expect(h.forkAt).not.toHaveBeenCalled()
+    expect(view.queryByRole('textbox')).toBeNull()
+  })
+
+  it('keeps the editor open and reports a rewrite rejection', async () => {
+    const h = makeHarness({ nodes: [user(1, 'original question')] })
+    h.rewriteAt.mockResolvedValueOnce({
+      ok: false,
+      error: { message: 'the selected user message is no longer editable' },
+    })
+    const view = render(<h.ChatView {...h.props} />)
+
+    fireEvent.click(view.getByRole('button', { name: '编辑提问' }))
+    const editor = view.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(editor, { target: { value: 'edited question' } })
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: '发送' }))
+      await Promise.resolve()
+    })
+
+    expect(view.getByRole('textbox')).toBeTruthy()
+    expect(view.getByRole('alert').textContent).toContain('the selected user message is no longer editable')
+  })
+
   it('leaves the turn rail unrendered when an unrelated Chat update commits', () => {
     const snapshot = chatSnapshotFixture({
       nodes: [

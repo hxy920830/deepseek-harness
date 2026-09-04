@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
+import {
+  apply as settingsApply,
+  inject as settingsInject,
+} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { DesktopSettingsSchema } from '../src/settings.ts'
 import { CloseBehaviorRow } from '../src/client/CloseBehaviorRow.tsx'
@@ -39,6 +42,7 @@ async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
+  locale.setLocale('zh')
   ctx.provide('locale', locale)
   const descriptor = {
     ns: 'ui-desktop',
@@ -48,26 +52,16 @@ async function bench() {
     secrets: [],
     revision: 0,
   }
-  ctx.provide('connection', {
-    api: {
-      settings: {
-        describe: vi.fn(async () => ({
-          rpcId: 'desktop-describe' as never,
-          result: {
-            ok: true as const,
-            value: { writable: true, hasDocument: true, namespaces: [descriptor] },
-          },
-        })),
-        mutate: vi.fn(async () => ({
-          rpcId: 'desktop-mutate' as never,
-          result: { ok: true as const, value: descriptor },
-        })),
-      },
+  new TestRemote(ctx, {
+    settings: {
+      describe: async () => ({
+        ok: true as const,
+        value: { writable: true, hasDocument: true, namespaces: [descriptor] },
+      }),
+      mutate: async () => ({ ok: true as const, value: descriptor }),
     },
-    isLoopback: true,
-  } as never)
-  new TestRemote(ctx)
-  await ctx.plugin(SettingsScopeBinder).await()
+  })
+  await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale }
 }
 

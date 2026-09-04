@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentOptions, AgentSetup, ModelSelection as AgentModelSelection, ModelSelectionRef,
+  Agent, AgentHandle, AgentOptions, AgentSetup, ModelSelection as AgentModelSelection, ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-agent-presets'
@@ -14,6 +14,7 @@ import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
+import type {} from '@deepseek-ai/dsh-subagent'
 import type { ModelSelection } from './types.ts'
 
 /** Cold Session identity absent from persistence. */
@@ -54,6 +55,15 @@ export class ApiSessionPresetConflict extends Error {
         ? `session "${sessionId}" records no agent preset and cannot be adopted under "${requestedPreset}"`
         : `session "${sessionId}" runs agent preset "${existingPreset}", not "${requestedPreset}"`,
     )
+  }
+}
+
+/** A live Agent exists, but this Controller does not hold its teardown handle. */
+export class ApiSessionAgentBusyError extends Error {
+  /** @param sessionId - live Session that another owner controls. */
+  constructor(readonly sessionId: SessionId) {
+    super(`session "${sessionId}" is live under another Agent owner`)
+    this.name = 'ApiSessionAgentBusyError'
   }
 }
 
@@ -98,7 +108,7 @@ export function apiSessionSubagentOwnershipError(sessionId: SessionId): ApiSessi
   return new RemoteError(
     'session/agent-busy',
     `session "${sessionId}" is owned by subagent routing`,
-    { reason: 'use subagent delivery for this child session' },
+    { reason: 'use subagent delivery for this child session', sessionId },
   )
 }
 
@@ -140,6 +150,7 @@ export async function inspectApiSession(
 export class ApiSessionAgentController {
   private readonly resumes = new Map<SessionId, Promise<Agent>>()
   private readonly creations = new Map<SessionId, Promise<Agent>>()
+  private readonly handles = new Map<SessionId, AgentHandle>()
   private readonly selections = new WeakMap<Agent, InstalledSelection>()
   private readonly imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
 
@@ -160,6 +171,35 @@ export class ApiSessionAgentController {
       if ('error' in found) throw found.error
       return found.agent.ctx
     })
+    ctx.on('session/disposed', (session) => {
+      const handle = this.handles.get(session.id)
+      if (handle?.agent.session === session) this.handles.delete(session.id)
+    })
+  }
+
+  /**
+   * Release an Agent created or resumed through this Controller.
+   * @param sessionId - live or cold Session identity being deleted.
+   * @returns once the owned Agent and its continuable descendants are drained.
+   * @throws {@link ApiSessionAgentBusyError} when another owner holds the live Agent.
+   */
+  async release(sessionId: SessionId): Promise<void> {
+    const live = this.ctx.agents.get(sessionId)
+    const handle = this.handles.get(sessionId)
+    if (live === undefined) {
+      if (handle !== undefined) {
+        this.handles.delete(sessionId)
+        await handle.dispose()
+      }
+      return
+    }
+    if (handle === undefined || handle.agent !== live) {
+      throw new ApiSessionAgentBusyError(sessionId)
+    }
+    const subagents = this.ctx.get('subagents')
+    if (subagents !== undefined) await subagents.drainContinuableDescendants([live])
+    this.handles.delete(sessionId)
+    await handle.dispose()
   }
 
   /**
@@ -425,11 +465,12 @@ export class ApiSessionAgentController {
     if (published !== undefined && hasApiSessionSubagentOwner(this.ctx, published, live)) {
       throw new ApiSessionSubagentOwnership(sessionId)
     }
-    return (await this.ctx.agents.resume({
+    const handle = await this.ctx.agents.resume({
       resumeSessionId: sessionId,
       agentOptions: this.agentOptions(),
       setup: composition.setup,
-    })).agent
+    })
+    return this.adoptHandle(handle)
   }
 
   private async createOrAdopt(
@@ -457,11 +498,12 @@ export class ApiSessionAgentController {
         const storedPreset = this.presetForObservation(observation)
         this.assertPresetUnchanged(sessionId, presetId, storedPreset)
         const composition = await this.composeAgent(storedPreset)
-        return (await this.ctx.agents.resume({
+        const handle = await this.ctx.agents.resume({
           resumeSessionId: sessionId,
           agentOptions: this.agentOptions(),
           setup: composition.setup,
-        })).agent
+        })
+        return this.adoptHandle(handle)
       } catch (error: unknown) {
         if (!(error instanceof SessionQueryError)
           || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error
@@ -474,7 +516,7 @@ export class ApiSessionAgentController {
       throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
     }
     const composition = await this.composeAgent(presetId)
-    return (await this.ctx.agents.create({
+    const handle = await this.ctx.agents.create({
       sessionId,
       agentOptions: this.agentOptions(),
       meta: {
@@ -482,7 +524,22 @@ export class ApiSessionAgentController {
         ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
       },
       setup: composition.setup,
-    })).agent
+    })
+    return this.adoptHandle(handle)
+  }
+
+  /**
+   * Adopt the exact handle returned by the Agent registry.
+   * @param handle - Agent handle returned by the registry.
+   * @returns the adopted Agent instance.
+   */
+  adoptHandle(handle: AgentHandle): Agent {
+    const existing = this.handles.get(handle.agent.id)
+    if (existing !== undefined && existing.agent !== handle.agent) {
+      throw new Error(`api-session: duplicate Agent handle for "${handle.agent.id}"`)
+    }
+    this.handles.set(handle.agent.id, handle)
+    return handle.agent
   }
 
   private agentOptions(): AgentOptions {

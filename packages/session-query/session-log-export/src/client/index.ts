@@ -7,8 +7,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import type {} from '@deepseek-ai/dsh-client-ui-desktop/client'
 import { SessionLogDownloadController } from './controller.ts'
+import type { DesktopSessionFiles } from './controller.ts'
 import type { SessionLogDownloadDialogInjected } from './Dialog.tsx'
 import { SessionLogDownloadHeaderAction } from './HeaderAction.tsx'
 import { en, NS, zh, type SessionLogDownloadKey } from './locales.ts'
@@ -16,6 +16,8 @@ import { en, NS, zh, type SessionLogDownloadKey } from './locales.ts'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionLogDownload: SessionLogDownloadController
+    /** Native archive capability supplied by the Tauri desktop shell. */
+    desktopSessionFiles?: DesktopSessionFiles
   }
 }
 

@@ -140,6 +140,18 @@ class ScriptedWorkspaceRemote implements WorkspaceRemote {
     throw new Error('unused')
   }
 
+  listArchivedSessions(): ReturnType<WorkspaceRemote['listArchivedSessions']> {
+    throw new Error('unused')
+  }
+
+  unarchiveSession(_request: WorkspaceArchiveSessionRequest): ReturnType<WorkspaceRemote['unarchiveSession']> {
+    throw new Error('unused')
+  }
+
+  deleteArchivedSession(_request: WorkspaceArchiveSessionRequest): ReturnType<WorkspaceRemote['deleteArchivedSession']> {
+    throw new Error('unused')
+  }
+
   async *follow(signal = new AbortController().signal): AsyncIterable<WorkspaceFollowFrame> {
     const generation = this.generations[this.calls++]
     if (generation === undefined) throw new Error('no scripted Workspace generation')
@@ -178,6 +190,16 @@ class CommandWorkspaceRemote implements WorkspaceRemote {
 
   readonly archiveSession = vi.fn<WorkspaceRemote['archiveSession']>(request => Promise.resolve(remoteOk({
     archivedSessionIds: [request.sessionId],
+  })))
+
+  readonly listArchivedSessions = vi.fn<WorkspaceRemote['listArchivedSessions']>(() => Promise.resolve(remoteOk({ items: [] })))
+
+  readonly unarchiveSession = vi.fn<WorkspaceRemote['unarchiveSession']>(() => Promise.resolve(remoteOk({
+    archivedSessionIds: [],
+  })))
+
+  readonly deleteArchivedSession = vi.fn<WorkspaceRemote['deleteArchivedSession']>(() => Promise.resolve(remoteOk({
+    archivedSessionIds: [],
   })))
 
   async *follow(_signal?: AbortSignal): AsyncIterable<WorkspaceFollowFrame> {}

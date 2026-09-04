@@ -57,6 +57,9 @@ export interface SessionPersistenceSnapshot {
   readonly sizeBytes?: number
 }
 
+/** Result of deleting one cold persisted Session. */
+export type SessionPersistenceDeleteResult = 'removed' | 'absent'
+
 /** Options for {@link SessionPersistence.create}. */
 export interface SessionPersistenceCreateOptions {
   /** Optional cancellation observed before backend work starts. */
@@ -159,6 +162,17 @@ export abstract class SessionPersistence extends Service {
    * @throws {SessionAlreadyOwnedError} for `write` when ownership is taken.
    */
   abstract open(id: SessionId, access: SessionAccess, options?: SessionPersistenceOpenOptions): Promise<SessionHandle>
+
+  /**
+   * Permanently delete one cold stored session.
+   *
+   * Backends reject an id with active write ownership and return `absent` when
+   * no durable session exists. Callers retire live Agent owners separately.
+   * @param id - the stored session to delete.
+   * @returns whether a durable session was removed.
+   * @throws {SessionAlreadyOwnedError} when a write handle owns the id.
+   */
+  abstract delete(id: SessionId): Promise<SessionPersistenceDeleteResult>
 
   /**
    * Flush every active write handle owned by this service instance in one

@@ -41,6 +41,7 @@ function sessionFakeFor() {
       value: { attachment: ATTACHMENT, data: Uint8Array.of(1) },
     })),
     prompt: vi.fn<ISession['prompt']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
+    rewritePrompt: vi.fn<ISession['rewritePrompt']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
     cancel: vi.fn<ISession['cancel']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
   } satisfies SessionBehaviorOverrides
 }

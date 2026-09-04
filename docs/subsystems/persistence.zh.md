@@ -353,6 +353,17 @@ abstract create(header: SessionHeader, options?: SessionPersistenceCreateOptions
 abstract open(id: SessionId, access: SessionAccess, options?: SessionPersistenceOpenOptions): Promise<SessionHandle>
 
 /**
+ * Permanently delete one cold stored session.
+ *
+ * Backends reject an id with active write ownership and return `absent` when
+ * no durable session exists. Callers retire live Agent owners separately.
+ * @param id - the stored session to delete.
+ * @returns whether a durable session was removed.
+ * @throws {SessionAlreadyOwnedError} when a write handle owns the id.
+ */
+abstract delete(id: SessionId): Promise<SessionPersistenceDeleteResult>
+
+/**
  * Flush every active write handle owned by this service instance in one
  * durability barrier: each handle's routed live events drain durably and
  * its session materializes, exactly as that handle's own

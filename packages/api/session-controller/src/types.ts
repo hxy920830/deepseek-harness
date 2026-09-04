@@ -187,7 +187,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
       readonly requestedCwd: string
       readonly existingCwd?: string
     }
-    'session/agent-busy': { readonly reason: string }
+    'session/agent-busy': { readonly reason: string; readonly sessionId?: SessionId }
     'session/invalid-time-zone': { readonly value: string }
     'session/workspace-attach-failed': { readonly sessionId: SessionId; readonly workspaceId: string }
     'agent-preset/conflict': {
@@ -310,6 +310,8 @@ export interface SessionPromptRequest {
   readonly mode: 'queue' | 'steer'
   readonly content: readonly PromptContentPart[]
   readonly clientTimeZone?: string
+  /** Event sequence of the historical user prompt whose surface suffix is replaced. */
+  readonly rewriteFromSeq?: number
 }
 
 /** Receipt after one prompt enters the target Agent inbox. */
@@ -368,7 +370,12 @@ export type SessionRequestId = Branded<'session-request-id'>
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     /** Browser prompt correlation and optional Host-validated time zone. */
-    'user-rpc': { kind: 'user'; rpcId: SessionRequestId; clientTimeZone?: string }
+    'user-rpc': {
+      kind: 'user'
+      rpcId: SessionRequestId
+      clientTimeZone?: string
+      rewrite?: import('@deepseek-ai/dsh-llm').UserRewriteMetadata
+    }
   }
 }
 

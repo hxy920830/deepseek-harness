@@ -7,6 +7,7 @@ import type { RemoteFailure, RemoteResult, TypertClientRemote } from '@deepseek-
 import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
+  ArchivedSessionView,
   WorkspaceBaseline,
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
@@ -166,6 +167,36 @@ export class ClientWorkspaceModel implements WorkspaceFollowSink {
     sessionId: WorkspaceArchiveSessionRequest['sessionId'],
   ): Promise<RemoteResult<WorkspaceArchiveValue>> {
     const result = await this.remote.archiveSession({ sessionId })
+    if (result.ok) this.installArchived(result.value.archivedSessionIds)
+    return result
+  }
+
+  /**
+   * Load the authoritative archived Session views.
+   * @returns generated Remote result containing archived Session views.
+   */
+  listArchivedSessions(): Promise<RemoteResult<{ items: readonly ArchivedSessionView[] }>> {
+    return this.remote.listArchivedSessions({})
+  }
+
+  /**
+   * Restore one archived Session and install the returned archive set.
+   * @param sessionId - archived Session to restore.
+   * @returns generated Remote result containing the archive set.
+   */
+  async unarchiveSession(sessionId: WorkspaceArchiveSessionRequest['sessionId']): Promise<RemoteResult<WorkspaceArchiveValue>> {
+    const result = await this.remote.unarchiveSession({ sessionId })
+    if (result.ok) this.installArchived(result.value.archivedSessionIds)
+    return result
+  }
+
+  /**
+   * Permanently delete one archived Session and install the returned archive set.
+   * @param sessionId - archived Session to delete.
+   * @returns generated Remote result containing the archive set.
+   */
+  async deleteArchivedSession(sessionId: WorkspaceArchiveSessionRequest['sessionId']): Promise<RemoteResult<WorkspaceArchiveValue>> {
+    const result = await this.remote.deleteArchivedSession({ sessionId })
     if (result.ok) this.installArchived(result.value.archivedSessionIds)
     return result
   }

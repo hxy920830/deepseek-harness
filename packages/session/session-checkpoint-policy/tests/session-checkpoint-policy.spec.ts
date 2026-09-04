@@ -15,6 +15,7 @@ const contexts: Context[] = []
 // `ctx.sessions`, so no handle is ever opened in these tests.
 class TestPersistence extends SessionPersistence {
   create(): Promise<SessionHandle> { return Promise.reject(new Error('not used')) }
+  delete(): Promise<'removed' | 'absent'> { return Promise.resolve('absent') }
   open(): Promise<SessionHandle> { return Promise.reject(new Error('not used')) }
   flush(): Promise<void> { return Promise.resolve() }
   stat(): Promise<SessionPersistenceSnapshot | undefined> { return Promise.resolve(undefined) }

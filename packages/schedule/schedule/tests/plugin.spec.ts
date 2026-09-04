@@ -31,6 +31,10 @@ class PersistenceProbe extends SessionPersistence {
     return this.handle(entry, 'write')
   }
 
+  override async delete(id: SessionId): Promise<'removed' | 'absent'> {
+    return this.stored.delete(id) ? 'removed' : 'absent'
+  }
+
   // Appends are durable on resolution here; nothing buffers, so the service-wide flush is a no-op.
   override async flush(): Promise<void> {}
 

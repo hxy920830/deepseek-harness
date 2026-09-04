@@ -3,6 +3,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { DESKTOP_SETTINGS_NAMESPACE, type DesktopSettings } from '../settings.ts'
 import { CloseBehaviorRow, type CloseBehaviorRowInjected } from './CloseBehaviorRow.tsx'

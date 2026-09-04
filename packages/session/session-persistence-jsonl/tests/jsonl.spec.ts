@@ -1,7 +1,7 @@
 import { MessageId, createMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, rm, readFile, rename, writeFile, readdir, stat, symlink, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { SESSION_FORMAT_VERSION, SessionLogOffset, SessionSeq, SessionId } from '@deepseek-ai/dsh-session'
@@ -2031,6 +2031,42 @@ describe('JsonlSessionPersistence: edge cases', () => {
     const valid = meta('fractional-created-at')
     await writeLog(ctx.sessionPersistence, valid, oneTurnLog())
     expect((await readAll(ctx.sessionPersistence, valid.id)).meta.createdAt).toBe(valid.createdAt)
+  })
+
+  it('deletes a cold log and reports absence on a repeated request', async () => {
+    const m = meta('delete-cold', '/delete')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+
+    await expect(ctx.sessionPersistence.delete(m.id)).resolves.toBe('removed')
+    await expect(ctx.sessionPersistence.stat(m.id)).resolves.toBeUndefined()
+    await expect(ctx.sessionPersistence.delete(m.id)).resolves.toBe('absent')
+  })
+
+  it('refuses to traverse a linked session directory during deletion', async () => {
+    const m = meta('delete-linked', '/linked')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+    const linkedDir = sessionDir(root, m.cwd, m.id)
+    const externalRoot = await freshRoot()
+    const externalDir = join(externalRoot, 'owned-elsewhere')
+    await rename(linkedDir, externalDir)
+    await symlink(externalDir, linkedDir, process.platform === 'win32' ? 'junction' : 'dir')
+    try {
+      await expect(ctx.sessionPersistence.delete(m.id))
+        .rejects.toThrow(/refusing to delete.*through linked directory/)
+      expect((await stat(rawLogPath(root, m.cwd, m.id))).isFile()).toBe(true)
+    } finally {
+      await unlink(linkedDir)
+    }
+  })
+
+  it('deletes only canonical generations when another session artifact remains', async () => {
+    const m = meta('delete-neighbor', '/neighbor')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+    const dir = sessionDir(root, m.cwd, m.id)
+    await writeFile(join(dir, 'metadata.json'), '{}\n')
+
+    await expect(ctx.sessionPersistence.delete(m.id)).resolves.toBe('removed')
+    await expect(readdir(dir)).resolves.toEqual(['metadata.json'])
   })
 
   it('list discovers sessions across multiple project directories', async () => {

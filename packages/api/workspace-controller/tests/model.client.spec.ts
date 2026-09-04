@@ -115,6 +115,18 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
     return this.onArchiveSession(request)
   }
 
+  listArchivedSessions(): ReturnType<WorkspaceRemote['listArchivedSessions']> {
+    throw new Error('unused')
+  }
+
+  unarchiveSession(_request: WorkspaceArchiveSessionRequest): ReturnType<WorkspaceRemote['unarchiveSession']> {
+    throw new Error('unused')
+  }
+
+  deleteArchivedSession(_request: WorkspaceArchiveSessionRequest): ReturnType<WorkspaceRemote['deleteArchivedSession']> {
+    throw new Error('unused')
+  }
+
   async *follow(_signal?: AbortSignal): AsyncGenerator<WorkspaceFollowFrame> {}
 
   private record(method: string, request: unknown): void {

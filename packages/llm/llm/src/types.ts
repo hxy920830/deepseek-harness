@@ -33,6 +33,7 @@ export type {
   ModelMessageSource,
   ToolMessageSource,
   ToolResultMessage,
+  UserRewriteMetadata,
   UserMessage,
 } from './message.ts'
 

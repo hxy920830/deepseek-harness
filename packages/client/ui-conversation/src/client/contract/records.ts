@@ -45,6 +45,8 @@ export interface UserMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
+  /** Original user-event seq whose visible suffix this same-session rewrite replaced. */
+  rewriteFromSeq?: number
 }
 
 /** Recorded boundaries used to derive assistant latency and throughput. */

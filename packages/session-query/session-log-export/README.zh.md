@@ -19,6 +19,7 @@ kind: "package-reference"
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
+
 该命令只由 Web bundle 挂载。只有 `/export` 返回成功时，提交命令的浏览器才会触发下载；其他标签页仍会渲染持久命令行，但不会重复执行浏览器副作用。Header 按钮直接调用同一个控制器。两种入口都会先发出 `HEAD` 预检。在 Tauri 桌面端且已在通用设置中选择目录（`ui-desktop.sessionLogDir`）时，控制器会把 ZIP 取回一次，通过可选的 `desktopSessionFiles` 能力原生写入该目录且不覆盖旧文件，并发布保存路径；否则把 GET URL 交给浏览器下载管理器，JavaScript 不会缓冲 ZIP。两条路径共用并发折叠、插件释放时取消预检、准备阶段错误处理和同一个 Modal。
 
 -----

@@ -9,6 +9,19 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-typert-protocol'
 
+/** Host-owned Agent lifecycle capability used before permanent Session deletion. */
+export interface WorkspaceSessionOwner {
+  /** Release one live Session when the Workspace registry is deleting its log. */
+  release(sessionId: SessionId): Promise<void>
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Optional Host owner for releasing live Sessions before permanent deletion. */
+    workspaceSessionOwner?: WorkspaceSessionOwner
+  }
+}
+
 /**
  * Identifies one workspace record. A generated uuid, never the path: path
  * normalization rewrites paths, and a reference anchor must stay stable.

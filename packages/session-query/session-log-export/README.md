@@ -19,6 +19,7 @@ English | [中文](README.zh.md)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
+
 The command is mounted only by the Web bundle. A successful `/export` result triggers the download only in the browser that submitted it; other tabs render the durable command row without repeating the browser side effect. The Header button calls the same controller directly. Both entry paths issue a `HEAD` preflight. Inside the Tauri shell with a directory chosen in General settings (`ui-desktop.sessionLogDir`), the controller fetches the ZIP once and hands it to the optional `desktopSessionFiles` capability for a no-overwrite native save into that folder, publishing the saved path; otherwise the GET URL goes to the browser download manager without buffering the ZIP in JavaScript. Both paths share in-flight collapsing, cancellation of the preflight on plugin disposal, preparation-error handling, and the same Modal.
 
 -----

@@ -392,6 +392,33 @@ describe('paging', () => {
 })
 
 describe('prompt and cancel errors', () => {
+  it('rewrites an ordinary Session and refuses the subagent transport path', async () => {
+    const ordinary = makeSession()
+    await expect(ordinary.session.rewritePrompt(12, 'edited prompt')).resolves.toEqual({
+      ok: true,
+      value: { accepted: true },
+    })
+    expect(ordinary.api.callsOf('session.prompt')).toEqual([{
+      requestId: expect.any(String) as unknown as string,
+      sessionId: SID,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'edited prompt' }],
+      clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+      rewriteFromSeq: 12,
+    }])
+
+    const child = makeSession(new FakeApiClient(), {
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    await expect(child.session.rewritePrompt(12, 'edited prompt')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'subagent/not-resumable' },
+    })
+    expect(child.api.callsOf('session.prompt')).toEqual([])
+    expect(child.api.callsOf('subagents.prompt')).toEqual([])
+  })
+
   it('routes an addressed child through non-activating history, continuation prompt, and interrupt only', async () => {
     const api = new FakeApiClient()
     const session = new Session(SID, fakeRemote(api), {

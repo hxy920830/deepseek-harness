@@ -11,6 +11,8 @@ import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
   ApiSessionAgentController,
+  ApiSessionAgentBusyError,
+  apiSessionSubagentOwnershipError,
   inspectApiSession,
   type ApiSessionAgentResult,
 } from './agent.ts'
@@ -116,6 +118,18 @@ export class SessionController extends TypertRemoteService {
     super(ctx, 'sessionController', { namespace: 'session' })
     installModelSelectionProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
+    ctx.provide('workspaceSessionOwner', {
+      release: async (sessionId: SessionId) => {
+        try {
+          await this.agents.release(sessionId)
+        } catch (error) {
+          if (error instanceof ApiSessionAgentBusyError) {
+            throw apiSessionSubagentOwnershipError(sessionId)
+          }
+          throw error
+        }
+      },
+    })
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
       const result = await this.agents.resolveAgent(sessionId)

@@ -15,7 +15,11 @@ import { createDesktopUiStore } from '../src/client/store.ts'
 afterEach(cleanup)
 
 const unusedHook = (() => { throw new Error('unused by desktop components') }) as never
-const kit = { useSessions: unusedHook, useWorkspaces: unusedHook }
+const kit = {
+  useSessions: unusedHook,
+  useSessionPendingInteraction: unusedHook,
+  useWorkspaces: unusedHook,
+}
 
 function translator(dictionary: Record<DesktopKey, string>): CloseDialogProps['t'] {
   return key => dictionary[key as DesktopKey] ?? key

@@ -96,6 +96,16 @@ export class FixtureSession implements SessionFace {
   }
 
   /**
+   * Fail-loud stub; supply `rewritePrompt` on the fixture's Session face to exercise it.
+   * @param _seq - event sequence of the prompt being replaced.
+   * @param _text - replacement prompt text.
+   * @returns never — always throws.
+   */
+  rewritePrompt(_seq: number, _text: string): never {
+    throw new Error(`test session "${this.sessionId}": rewritePrompt is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
    * Minimal local-echo registration: mints an identity without touching the
    * fixture snapshot (submission echoes are client-only presentation state).
    * Supply `beginSubmission` on the fixture's session face to observe echoes.

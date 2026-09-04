@@ -1846,6 +1846,57 @@ describe('built-in conversation node Definitions', () => {
     expect((node(current, 'tool-call')?.data as ToolChatData).root).not.toHaveProperty('kind')
   })
 
+  it('projects a human rewrite as the replacement prompt and removes the old suffix', () => {
+    const value = assembler([
+      at(1, 'user/message', textMessage('old-user', 'old question'), { surfaceOp: 'append' }),
+      at(2, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('old-answer', 'old answer'),
+      }, { surfaceOp: 'append' }),
+      at(3, 'user/message', {
+        ...textMessage('edited-user', 'edited question'),
+        source: {
+          kind: 'user',
+          rewrite: { startSeq: 1, endSeq: 2, shadowedSeqs: [1, 2] },
+        },
+      }, { surfaceOp: { op: 'replace', start: 1, end: 2 } }),
+    ])
+
+    const current = snapshot(value)
+    expect(current.order).toHaveLength(1)
+    expect(node(current, 'user')?.data).toMatchObject({
+      content: [{ type: 'text', text: 'edited question' }],
+      rewriteFromSeq: 1,
+    })
+    expect(node(current, 'assistant-step')).toBeUndefined()
+  })
+
+  it('removes the old suffix when a human rewrite arrives in a live upsert', () => {
+    const value = assembler([
+      at(1, 'user/message', textMessage('old-user', 'old question'), { surfaceOp: 'append' }),
+      at(2, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('old-answer', 'old answer'),
+      }, { surfaceOp: 'append' }),
+    ])
+
+    value.append(at(3, 'user/message', {
+      ...textMessage('edited-user', 'edited question'),
+      source: {
+        kind: 'user',
+        rewrite: { startSeq: 1, endSeq: 2, shadowedSeqs: [1, 2] },
+      },
+    }, { surfaceOp: { op: 'replace', start: 1, end: 2 } }))
+    value.flush()
+
+    const current = snapshot(value)
+    expect(current.order).toHaveLength(1)
+    expect(node(current, 'user')?.data).toMatchObject({ rewriteFromSeq: 1 })
+    expect(node(current, 'assistant-step')).toBeUndefined()
+  })
+
   it('assembles retry chains and keeps manual and automatic compaction ownership separate', () => {
     const retry = assembler([
       at(1, 'turn/start', { turn: 1 }),

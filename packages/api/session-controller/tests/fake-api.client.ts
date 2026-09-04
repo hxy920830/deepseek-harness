@@ -195,6 +195,15 @@ export class FakeApiClient {
   onWorkspaceArchiveSession: (payload: unknown) => Promise<RemoteResult<{ archivedSessionIds: SessionId[] }>> =
     payload => Promise.resolve(ok({ archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))
 
+  onWorkspaceListArchivedSessions: () => Promise<RemoteResult<{ items: never[] }>> =
+    () => Promise.resolve(ok({ items: [] }))
+
+  onWorkspaceUnarchiveSession: (_payload: unknown) => Promise<RemoteResult<{ archivedSessionIds: SessionId[] }>> =
+    () => Promise.resolve(ok({ archivedSessionIds: [] }))
+
+  onWorkspaceDeleteArchivedSession: (_payload: unknown) => Promise<RemoteResult<{ archivedSessionIds: SessionId[] }>> =
+    () => Promise.resolve(ok({ archivedSessionIds: [] }))
+
   /** Remote namespaces bound to this fake's programmable unary slots and stream pumps. */
   sessionRemotes(): RuntimeRemotes {
     return {
@@ -272,6 +281,21 @@ export class FakeApiClient {
           'workspace.archiveSession',
           payload,
           this.onWorkspaceArchiveSession(payload),
+        ),
+        listArchivedSessions: () => this.record(
+          'workspace.listArchivedSessions',
+          {},
+          this.onWorkspaceListArchivedSessions(),
+        ),
+        unarchiveSession: payload => this.record(
+          'workspace.unarchiveSession',
+          payload,
+          this.onWorkspaceUnarchiveSession(payload),
+        ),
+        deleteArchivedSession: payload => this.record(
+          'workspace.deleteArchivedSession',
+          payload,
+          this.onWorkspaceDeleteArchivedSession(payload),
         ),
         follow: signal => this.openWorkspace(signal),
       },

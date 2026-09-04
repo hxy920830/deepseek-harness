@@ -16,7 +16,9 @@ import type {
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { Inbox, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
+import type {
+  GenerateOptions, LlmCallConfig, Message, PreparedLlmCall, UserRewriteMetadata,
+} from '@deepseek-ai/dsh-llm'
 import {
   LlmError,
   createAssistantMessage,
@@ -26,8 +28,10 @@ import {
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
-import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
+import type {
+  EpochHeader, RequestContext, Session, SessionId, SurfaceIntent, TurnEndReason, UserMessage,
+} from '@deepseek-ai/dsh-session'
+import { canonicalHeader, headerEquals, SessionSeq } from '@deepseek-ai/dsh-session'
 import { joinContextSections, renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -56,6 +60,22 @@ type PreparedStep =
     startsRequestSeries?: true
     assembly: PromptAssembly
   }
+
+/** Resolve durable surface placement carried by a human historical-prompt rewrite. */
+function userMessageSurfaceIntent(message: UserMessage): SurfaceIntent {
+  const source = message.source
+  const rewrite = source.kind === 'user'
+    ? (source as typeof source & { rewrite?: UserRewriteMetadata }).rewrite
+    : undefined
+  if (rewrite === undefined) return { surfaceOp: 'append' }
+  const start = SessionSeq(rewrite.startSeq)
+  const end = SessionSeq(rewrite.endSeq)
+  const shadowedSeqs = rewrite.shadowedSeqs.map(SessionSeq)
+  return {
+    surfaceOp: { op: 'replace', start, end },
+    sourceEventSeqs: shadowedSeqs,
+  }
+}
 
 /** Remove adapter-derived values before plugins propose the next request config. */
 function requestProposal(header: EpochHeader): LlmCallConfig {
@@ -292,7 +312,7 @@ export class ReactLoopAgent implements Agent {
         phase.step = step
         try {
           for (const message of decision.messages) {
-            this.session.append('user/message', message, { surfaceOp: 'append' })
+            this.session.append('user/message', message, userMessageSurfaceIntent(message))
           }
           // max-tokens is sticky: once any step hits the ceiling, later steps
           // that complete normally must not downgrade the turn outcome.

@@ -216,7 +216,7 @@ const ChatNodeList = memo(function ChatNodeList({ order, ...seatProps }: ChatNod
  */
 export function ChatView({
   useSession, useChat, useChatNode, useChatNodeProcess, useSessions, useStore, actions, renderSlot,
-  sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions,
+  sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, rewriteAt, fileMentions,
   useTranscriptView, useProjection, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
@@ -242,6 +242,49 @@ export function ChatView({
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
+  const canRewrite = !running && inbox.length === 0
+  const [editingMessageSeq, setEditingMessageSeq] = useState<number | null>(null)
+  const [rewritePending, setRewritePending] = useState(false)
+  const [rewriteError, setRewriteError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!canRewrite) {
+      setEditingMessageSeq(null)
+      setRewriteError(null)
+    }
+  }, [canRewrite])
+
+  const startMessageEdit = useCallback((seq: number): void => {
+    if (!canRewrite || rewritePending) return
+    setEditingMessageSeq(seq)
+    setRewriteError(null)
+  }, [canRewrite, rewritePending])
+  const cancelMessageEdit = useCallback((): void => {
+    if (rewritePending) return
+    setEditingMessageSeq(null)
+    setRewriteError(null)
+  }, [rewritePending])
+  const submitMessageEdit = useCallback((seq: number, text: string): void => {
+    if (!canRewrite || rewritePending || text.trim() === '') return
+    setRewritePending(true)
+    setRewriteError(null)
+    void rewriteAt(seq, text).then((result) => {
+      if (result.ok) setEditingMessageSeq(null)
+      else setRewriteError(result.error?.message ?? t('message.editFailed'))
+    }).catch(() => {
+      setRewriteError(t('message.editFailed'))
+    }).finally(() => {
+      setRewritePending(false)
+    })
+  }, [canRewrite, rewriteAt, rewritePending, t])
+  const messageEdit = useMemo(() => ({
+    editingSeq: editingMessageSeq,
+    pending: rewritePending,
+    error: rewriteError,
+    start: startMessageEdit,
+    cancel: cancelMessageEdit,
+    submit: submitMessageEdit,
+  }), [editingMessageSeq, rewritePending, rewriteError, startMessageEdit, cancelMessageEdit, submitMessageEdit])
   const compactTranscript = useTranscriptView(mode => mode === 'compact')
   const inspectCall = useCallback((callId: string) => {
     openView('trajectory', callId)
@@ -787,6 +830,7 @@ export function ChatView({
             openFile={requestOpenFile}
             inspectCall={inspectCall}
             forkAt={forkAt}
+            {...canRewrite ? { messageEdit } : {}}
             loadImage={loadImage}
             renderMessageImages={renderMessageImages}
             fileMentions={fileMentions}

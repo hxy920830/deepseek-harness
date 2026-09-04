@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { DesktopSessionFiles } from '@deepseek-ai/dsh-client-ui-desktop/client'
+import type { DesktopSessionFiles } from '../src/client/controller.ts'
 import {
   downloadUrl, SessionLogDownloadController, sessionLogZipFilename,
 } from '../src/client/controller.ts'

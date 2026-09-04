@@ -3,6 +3,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { ArchivedSessionView } from '@deepseek-ai/dsh-api-workspace-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { workspaceSnapshot } from './fixtures.ts'
@@ -140,6 +141,49 @@ export class TestWorkspaces implements IWorkspaces {
     }
     await this.update((draft) => {
       draft.archivedSessionIds = [...draft.archivedSessionIds, sessionId]
+    })
+  }
+
+  /**
+   * List archived Sessions (recorded; default is an empty archive).
+   * @returns archived Session views supplied by the stub.
+   */
+  async listArchivedSessions(): Promise<readonly ArchivedSessionView[]> {
+    this.calls.push({ method: 'listArchivedSessions', args: [] })
+    const stub = this.stubs.get('listArchivedSessions')
+    if (stub !== undefined) return await (stub() as Promise<readonly ArchivedSessionView[]>)
+    return []
+  }
+
+  /**
+   * Restore one archived Session (recorded; default removes it from the archive set).
+   * @param sessionId - Session to restore.
+   */
+  async unarchiveSession(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'unarchiveSession', args: [sessionId] })
+    const stub = this.stubs.get('unarchiveSession')
+    if (stub !== undefined) {
+      await (stub(sessionId) as Promise<void>)
+      return
+    }
+    await this.update((draft) => {
+      draft.archivedSessionIds = draft.archivedSessionIds.filter(id => id !== sessionId)
+    })
+  }
+
+  /**
+   * Permanently delete one archived Session (recorded; default removes it from the archive set).
+   * @param sessionId - Session to delete.
+   */
+  async deleteArchivedSession(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'deleteArchivedSession', args: [sessionId] })
+    const stub = this.stubs.get('deleteArchivedSession')
+    if (stub !== undefined) {
+      await (stub(sessionId) as Promise<void>)
+      return
+    }
+    await this.update((draft) => {
+      draft.archivedSessionIds = draft.archivedSessionIds.filter(id => id !== sessionId)
     })
   }
 }

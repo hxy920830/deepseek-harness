@@ -52,6 +52,16 @@ export interface ChatFileMentions {
   forClosing(owner: TurnTailOwnerProps): MarkdownFileMentions | undefined
 }
 
+/** Inline historical-prompt editor state owned by the Chat view. */
+export interface MessageEditOwnerProps {
+  editingSeq: number | null
+  pending: boolean
+  error: string | null
+  start: (seq: number) => void
+  cancel: () => void
+  submit: (seq: number, text: string) => void
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Optional prose file-mention provider. */
@@ -76,6 +86,8 @@ export interface ChatNodeOwnerProps {
   openFile: (path: string) => void
   inspectCall: (callId: ToolCallId) => void
   forkAt: (seq: number) => void
+  /** Inline editor for eligible historical user prompts. */
+  messageEdit?: MessageEditOwnerProps | undefined
   /**
    * Session-authorized image loader, down-threaded from the Chat view so a
    * chat-node renderer can render the attachment presentation slot directly
@@ -149,6 +161,8 @@ export interface ChatViewInjected {
     read: () => ChatScrollPosition | null
   }
   forkAt: (seq: number) => void
+  /** Rewrite a historical prompt in this same session. */
+  rewriteAt: (seq: number, text: string) => Promise<{ ok: boolean; error?: { message: string } }>
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 

@@ -51,9 +51,15 @@ async function harness(options: HarnessOptions = {}) {
   let listed = options.sessions ?? []
   const list = vi.fn(async (): Promise<SessionPersistenceSnapshot[]> =>
     listed.map(header => ({ header, revision: SessionPersistenceRevision(`rev-${header.id}`) })))
+  const deleteSession = vi.fn(async (id: SessionId): Promise<'removed' | 'absent'> => {
+    const next = listed.filter(header => header.id !== id)
+    if (next.length === listed.length) return 'absent'
+    listed = next
+    return 'removed'
+  })
   const open = vi.fn(() => { throw new Error('event bodies must not be opened') })
   const stat = vi.fn(() => { throw new Error('per-session stat must not be needed') })
-  ctx.provide('sessionPersistence', { list, open, stat } as never)
+  ctx.provide('sessionPersistence', { delete: deleteSession, list, open, stat } as never)
 
   if (options.sessionStore === true) {
     await ctx.plugin(SessionStore)
@@ -66,7 +72,9 @@ async function harness(options: HarnessOptions = {}) {
   }
 
   const changes: DomainChanged[] = []
+  const deletedSessions: SessionId[] = []
   ctx.on('domain/changed', (change) => { changes.push(change) })
+  ctx.on('workspace/session-deleted', (sessionId) => { deletedSessions.push(sessionId) })
   const fiber = await ctx.plugin(WorkspaceRegistry)
   const initChanges = [...changes]
   changes.length = 0
@@ -77,6 +85,8 @@ async function harness(options: HarnessOptions = {}) {
     registry: ctx.workspaceRegistry,
     changes,
     initChanges,
+    deleteSession,
+    deletedSessions,
     list,
     open,
     stat,
@@ -971,5 +981,77 @@ describe('registry-global session archive', () => {
     )
     const upgraded = await harness({ pool: legacy })
     expect(upgraded.registry.archivedSessionIds).toEqual([])
+  })
+
+  it('unarchives durably without moving the Workspace accounting slot', async () => {
+    const dir = await makeDir('unarchive-home')
+    const result = await harness({ sessions: [header('s1', dir, 100)] })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('s1'))
+
+    await result.registry.unarchiveSession(SessionId('s1'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(workspace.sessionIds).toEqual(['s1'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+
+    await expect(result.registry.unarchiveSession(SessionId('s1')))
+      .rejects.toThrow(/session 's1'.*not archived/)
+  })
+
+  it('permanently deletes an archived root and subagents while preserving forks', async () => {
+    const dir = await makeDir('archive-delete')
+    const root = header('root', dir, 100)
+    const subagent: SessionHeader = {
+      ...header('subagent', dir, 110),
+      parentSession: root.id,
+      origin: 'subagent',
+    }
+    const nested: SessionHeader = {
+      ...header('nested', dir, 120),
+      parentSession: subagent.id,
+      origin: 'subagent',
+    }
+    const fork: SessionHeader = { ...header('fork', dir, 130), parentSession: root.id }
+    const result = await harness({ sessions: [root, subagent, nested, fork] })
+    await result.registry.archiveSession(root.id)
+    const released: SessionId[] = []
+
+    await result.registry.deleteArchivedSession(root.id, async (sessionId) => {
+      released.push(sessionId)
+    })
+
+    expect(released).toEqual(['root', 'subagent', 'nested'])
+    expect(result.deleteSession.mock.calls.map(([id]) => id)).toEqual(['root', 'subagent', 'nested'])
+    expect(result.deletedSessions).toEqual(['root', 'subagent', 'nested'])
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(result.registry.list()[0]!.sessionIds).toEqual(['fork'])
+    await expect(result.registry.archiveSession(fork.id)).resolves.toBeUndefined()
+  })
+
+  it('resumes a marker-owned Session deletion after a persistence failure', async () => {
+    const dir = await makeDir('archive-delete-recovery')
+    const pool = new MemoryMediaPool()
+    const root = header('root', dir, 100)
+    const child: SessionHeader = {
+      ...header('child', dir, 110),
+      parentSession: root.id,
+      origin: 'subagent',
+    }
+    const first = await harness({ pool, sessions: [root, child] })
+    await first.registry.archiveSession(root.id)
+    first.deleteSession.mockRejectedValueOnce(new Error('delete medium unavailable'))
+
+    await expect(first.registry.deleteArchivedSession(root.id)).rejects.toThrow(/medium unavailable/)
+    expect(storedState(pool).pendingMutation).toEqual({
+      operation: 'delete-sessions',
+      sessionIds: ['root', 'child'],
+    })
+    await first.fiber.dispose()
+
+    const second = await harness({ pool, sessions: [root, child] })
+    expect(second.deleteSession.mock.calls.map(([id]) => id)).toEqual(['root', 'child'])
+    expect(second.registry.archivedSessionIds).toEqual([])
+    expect(second.registry.list()[0]!.sessionIds).toEqual([])
+    expect(storedState(pool).pendingMutation).toBeUndefined()
   })
 })

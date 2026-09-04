@@ -2,7 +2,6 @@
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { DesktopSessionFiles } from '@deepseek-ai/dsh-client-ui-desktop/client'
 
 /** Download phases presented by the shared modal. */
 export type SessionLogDownloadStatus = 'downloading' | 'success' | 'error'
@@ -24,6 +23,18 @@ export interface SessionLogDownloadState {
 type Fetch = (input: string | URL, init?: RequestInit) => Promise<Response>
 type Save = (url: string, filename: string) => void
 type DesktopFiles = () => DesktopSessionFiles | undefined
+
+/** Native archive capability consumed structurally when the Tauri shell is present. */
+export interface DesktopSessionFiles {
+  /** @returns the configured download directory, or null for the browser default. */
+  directory: () => string | null
+  /** @param filename - archive filename. @param bytes - archive contents. @returns saved absolute path. */
+  save: (filename: string, bytes: Uint8Array) => Promise<string>
+  /** @param path - saved archive path. @returns completion of the reveal request. */
+  reveal: (path: string) => Promise<void>
+  /** @param path - saved archive path. @returns completion of the open request. */
+  openFile: (path: string) => Promise<void>
+}
 
 const INITIAL: SessionLogDownloadState = { bySession: {} }
 

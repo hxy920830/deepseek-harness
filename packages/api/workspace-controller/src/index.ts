@@ -8,6 +8,8 @@ import { WorkspaceFeed } from './feed.ts'
 import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
+  WorkspaceArchivedSessionRequest,
+  WorkspaceArchivedSessionsValue,
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
@@ -32,7 +34,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Host service backing the generated `ctx.remote.workspace` namespace. */
 export class WorkspaceController extends TypertRemoteService {
-  static inject = ['typert', 'workspaceRegistry']
+  static inject = ['sessionQuery', 'typert', 'workspaceRegistry']
 
   private readonly commands: WorkspaceCommands
   private readonly feed: WorkspaceFeed
@@ -107,6 +109,36 @@ export class WorkspaceController extends TypertRemoteService {
   @Remote('archiveSession')
   archiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue> {
     return this.commands.archiveSession(request)
+  }
+
+  /**
+   * List archived Sessions without activating their Agents.
+   * @param _request - reserved empty request.
+   * @returns archived Session views ordered by activity.
+   */
+  @Remote('listArchivedSessions')
+  listArchivedSessions(_request: Record<never, never>): Promise<WorkspaceArchivedSessionsValue> {
+    return this.commands.listArchivedSessions()
+  }
+
+  /**
+   * Restore one archived Session to the normal Workspace surfaces.
+   * @param request - archived Session identity.
+   * @returns the resulting archive set.
+   */
+  @Remote('unarchiveSession')
+  unarchiveSession(request: WorkspaceArchivedSessionRequest): Promise<WorkspaceArchiveValue> {
+    return this.commands.unarchiveSession(request)
+  }
+
+  /**
+   * Permanently delete one archived Session and its product-owned descendants.
+   * @param request - archived Session identity.
+   * @returns the resulting archive set.
+   */
+  @Remote('deleteArchivedSession')
+  deleteArchivedSession(request: WorkspaceArchivedSessionRequest): Promise<WorkspaceArchiveValue> {
+    return this.commands.deleteArchivedSession(request)
   }
 
   /**

@@ -31,6 +31,13 @@ export interface ToolMessageSource {
   callId: ToolCallId
 }
 
+/** Model-surface suffix replaced by a human edit of an admitted prompt. */
+export interface UserRewriteMetadata {
+  readonly startSeq: number
+  readonly endSeq: number
+  readonly shadowedSeqs: number[]
+}
+
 /**
  * The kind of information in producer-supplied context, declared by the
  * producer beside its provenance.

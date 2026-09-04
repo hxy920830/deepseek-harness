@@ -90,6 +90,14 @@ export interface ISession {
     requestId?: SessionRequestId,
   ): Promise<RemoteResult<{ accepted: true }>>
   /**
+   * Replace one admitted text prompt and its later surface suffix, then queue
+   * a new turn in the same ordinary Session.
+   * @param seq - event sequence of the user prompt being replaced.
+   * @param text - replacement prompt text.
+   * @returns acceptance or the Host's stale, busy, or unsupported rejection.
+   */
+  rewritePrompt(seq: number, text: string): Promise<RemoteResult<{ accepted: true }>>
+  /**
    * Resolve one durable image referenced by this session.
    * @param attachmentId - opaque id found in the folded session log.
    * @returns the authenticated reference and decoded bytes.

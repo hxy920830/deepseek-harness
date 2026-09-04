@@ -146,6 +146,7 @@ export function apply(ctx: Context): void {
                 // Fork or child-title failure leaves the source view unchanged.
               })
           },
+          rewriteAt: (seq, text) => session.rewritePrompt(seq, text),
         }
       },
     }, ChatView)

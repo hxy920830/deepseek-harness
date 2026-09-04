@@ -233,6 +233,27 @@ Host service backing the generated `ctx.remote.workspace` namespace.
 @Remote('archiveSession') archiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue>
 
 /**
+ * List archived Sessions without activating their Agents.
+ * @param _request - reserved empty request.
+ * @returns archived Session views ordered by activity.
+ */
+@Remote('listArchivedSessions') listArchivedSessions(_request: Record<never, never>): Promise<WorkspaceArchivedSessionsValue>
+
+/**
+ * Restore one archived Session to the normal Workspace surfaces.
+ * @param request - archived Session identity.
+ * @returns the resulting archive set.
+ */
+@Remote('unarchiveSession') unarchiveSession(request: WorkspaceArchivedSessionRequest): Promise<WorkspaceArchiveValue>
+
+/**
+ * Permanently delete one archived Session and its product-owned descendants.
+ * @param request - archived Session identity.
+ * @returns the resulting archive set.
+ */
+@Remote('deleteArchivedSession') deleteArchivedSession(request: WorkspaceArchivedSessionRequest): Promise<WorkspaceArchiveValue>
+
+/**
  * Stream a complete Workspace baseline followed by ordered increments.
  * @param signal - generation cancellation.
  * @returns baseline followed by ordered Workspace increments.
@@ -306,6 +327,23 @@ insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly Workspac
 archiveSession(sessionId: SessionId): Promise<void>
 
 /**
+ * Restore one archived session without changing its log or Workspace slot.
+ * @param sessionId - archived session to restore.
+ * @returns resolution after durability.
+ */
+unarchiveSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Permanently delete an archived root session and its subagent descendants.
+ * A durable marker resumes persistence and Workspace-account cleanup after interruption.
+ * Ordinary fork descendants remain independent.
+ * @param sessionId - archived root session to delete.
+ * @param releaseLiveOwner - optional Host callback invoked in deletion order before persistence deletion.
+ * @returns resolution after every log and accounting reference is removed.
+ */
+deleteArchivedSession( sessionId: SessionId, releaseLiveOwner?: (sessionId: SessionId) => Promise<void>, ): Promise<void>
+
+/**
  * Resolve by canonical directory path without creating or mutating a
  * workspace. A missing path rejects during `realpath`; an existing unowned
  * directory returns `undefined`.
@@ -313,6 +351,29 @@ archiveSession(sessionId: SessionId): Promise<void>
  * @returns the workspace owning the canonical path, when one exists.
  */
 async resolveByPath(path: string): Promise<Workspace | undefined>
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/workspace/workspace/src/index.ts`](../../packages/workspace/workspace/src/index.ts)
+
+<a id="workspace-events"></a>
+
+### `workspace/*` events
+
+<a id="workspacesession-deleted--emit"></a>
+
+#### `workspace/session-deleted` — emit
+
+Permanent Session deletion committed in persistence and Workspace accounting.
+
+```ts cordis-catalog
+/**
+ * Permanent Session deletion committed in persistence and Workspace accounting.
+ * @param sessionId - deleted root or subagent Session id.
+ * @mode emit
+ */
+'workspace/session-deleted'(sessionId: SessionId): void
 ```
 
 Types: [SessionId](core.zh.md)

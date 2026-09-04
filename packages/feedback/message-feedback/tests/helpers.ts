@@ -122,6 +122,10 @@ class TestPersistence extends SessionPersistence {
     return this.handle(stored, 'write')
   }
 
+  async delete(id: SessionId): Promise<'removed' | 'absent'> {
+    return this.durable.delete(id) ? 'removed' : 'absent'
+  }
+
   // Appends are durable on resolution here; nothing buffers, so the service-wide flush is a no-op.
   async flush(): Promise<void> {}
 

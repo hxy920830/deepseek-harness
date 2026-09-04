@@ -17,7 +17,6 @@
     { "path": "../ui-slots" },
     { "path": "../ui-renderer" },
     { "path": "../../../vendor/cordis" },
-    { "path": "../../settings/settings" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../../settings/settings" }
   ]
 }

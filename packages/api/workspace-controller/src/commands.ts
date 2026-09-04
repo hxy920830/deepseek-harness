@@ -2,6 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
+import type {} from '@deepseek-ai/dsh-session-query'
 import {
   WorkspaceId,
   WorkspaceMoveInvalidError,
@@ -13,6 +14,8 @@ import { workspaceView } from './feed.ts'
 import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
+  WorkspaceArchivedSessionRequest,
+  WorkspaceArchivedSessionsValue,
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
@@ -156,6 +159,78 @@ export class WorkspaceCommands {
     } catch (error) {
       if (!(error instanceof WorkspaceUnknownSessionError)) throw error
       throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId }, { cause: error })
+    }
+    return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
+  }
+
+  /**
+   * Read every archived Session without resuming an Agent.
+   * @returns archived Session views ordered by their latest log event.
+   */
+  async listArchivedSessions(): Promise<WorkspaceArchivedSessionsValue> {
+    const archived = new Set(this.ctx.workspaceRegistry.archivedSessionIds)
+    const records = await this.ctx.sessionQuery.listSessions()
+    const candidates = records.filter(record => archived.has(record.header.id))
+    const items = await Promise.all(candidates.map(async (record) => {
+      const snapshot = await this.ctx.sessionQuery.readSession(record.header.id)
+      const titleSnapshot = await this.ctx.sessionQuery.readTitleSnapshot(record.header.id)
+      const title = titleSnapshot.title?.title ?? String(record.header.id)
+      const updatedAt = snapshot.events.reduce(
+        (latest, event) => Math.max(latest, event.time),
+        record.header.createdAt,
+      )
+      return {
+        sessionId: record.header.id,
+        title,
+        updatedAt,
+        ...(record.header.cwd === undefined ? {} : { cwd: record.header.cwd }),
+        ...(record.header.parentSession === undefined ? {} : { parentSessionId: record.header.parentSession }),
+        ...(record.header.origin === undefined ? {} : { origin: record.header.origin }),
+      }
+    }))
+    items.sort((left, right) => right.updatedAt - left.updatedAt || String(left.sessionId).localeCompare(String(right.sessionId)))
+    return { items }
+  }
+
+  /**
+   * Restore one archived Session and return the complete archive set.
+   * @param request - archived Session identity.
+   * @returns the resulting archive set.
+   */
+  async unarchiveSession(request: WorkspaceArchivedSessionRequest): Promise<WorkspaceArchiveValue> {
+    try {
+      await this.ctx.workspaceRegistry.unarchiveSession(request.sessionId)
+    } catch (error) {
+      if (!(error instanceof WorkspaceUnknownSessionError)) throw error
+      throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId })
+    }
+    return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
+  }
+
+  /**
+   * Permanently delete one archived Session and its product-owned descendants.
+   * @param request - archived Session identity.
+   * @returns the resulting archive set.
+   */
+  async deleteArchivedSession(request: WorkspaceArchivedSessionRequest): Promise<WorkspaceArchiveValue> {
+    try {
+      const owner = this.ctx.get('workspaceSessionOwner')
+      await this.ctx.workspaceRegistry.deleteArchivedSession(
+        request.sessionId,
+        owner === undefined ? undefined : sessionId => owner.release(sessionId),
+      )
+    } catch (error) {
+      if (remoteErrorOf(error) !== undefined) throw error
+      if (error instanceof WorkspaceUnknownSessionError) {
+        throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId })
+      }
+      if (error instanceof Error && error.name === 'ApiSessionAgentBusyError') {
+        throw new RemoteError('session/agent-busy', error.message, {
+          reason: error.message,
+          sessionId: request.sessionId,
+        })
+      }
+      throw error
     }
     return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
   }

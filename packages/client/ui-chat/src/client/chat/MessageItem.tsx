@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useMemo, useState } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { MessageImageSource } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -318,9 +318,24 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, t }: 
 
 /** User and admitted-steering keyed Chat renderer. */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderMessageImages, t,
+  node, renderMessageImages, messageEdit, t,
 }: ChatNodeViewProps<'user' | 'steering'>) {
   const data = node.data
+  const parts = contentParts(data.content)
+  const editable = data.kind === 'user' && parts.text.trim() !== ''
+    && parts.attachments.length === 0 && parts.rest.length === 0
+  if (data.kind === 'user' && messageEdit?.editingSeq === data.seq) {
+    return (
+      <UserMessageEditor
+        initialText={parts.text}
+        pending={messageEdit.pending}
+        error={messageEdit.error}
+        cancel={messageEdit.cancel}
+        submit={(text) => { messageEdit.submit(data.seq, text) }}
+        t={t}
+      />
+    )
+  }
   return (
     <UserStyleBubble
       content={data.content}
@@ -334,12 +349,56 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
           time={data.time}
           clock="start"
           className={css.actions}
+          onEdit={editable && messageEdit !== undefined ? () => { messageEdit.start(data.seq) } : undefined}
           t={t}
         />
       )}
     />
   )
 })
+
+/** Inline editor for one admitted user prompt. */
+function UserMessageEditor({ initialText, pending, error, cancel, submit, t }: {
+  initialText: string
+  pending: boolean
+  error: string | null
+  cancel: () => void
+  submit: (text: string) => void
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  const [text, setText] = useState(initialText)
+  const composing = useRef(false)
+  const send = (): void => {
+    if (!pending && text.trim() !== '') submit(text)
+  }
+  return (
+    <div className={css.editorRow}>
+      <textarea
+        autoFocus
+        className={css.editor}
+        value={text}
+        disabled={pending}
+        onChange={(event) => { setText(event.currentTarget.value) }}
+        onCompositionStart={() => { composing.current = true }}
+        onCompositionEnd={() => { composing.current = false }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.shiftKey || event.repeat || composing.current || event.nativeEvent.isComposing) return
+          event.preventDefault()
+          send()
+        }}
+      />
+      {error !== null && <div className={css.editorError} role="alert">{error}</div>}
+      <div className={css.editorActions}>
+        <button type="button" className={css.editorCancel} disabled={pending} onClick={cancel}>
+          {t('message.cancelEdit')}
+        </button>
+        <button type="button" className={css.editorSend} disabled={pending || text.trim() === ''} onClick={send}>
+          {t('message.sendEdit')}
+        </button>
+      </div>
+    </div>
+  )
+}
 
 /** Injected-context keyed Chat renderer. */
 export const ContextMessageNodeView = memo(function ContextMessageNodeView({ node, t }: ChatNodeViewProps<'context'>) {
