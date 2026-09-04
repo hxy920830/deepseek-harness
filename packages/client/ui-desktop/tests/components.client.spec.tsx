@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DesktopKey } from '../src/client/locales.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { CloseBehaviorRow } from '../src/client/CloseBehaviorRow.tsx'
