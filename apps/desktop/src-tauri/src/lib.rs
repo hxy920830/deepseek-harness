@@ -374,15 +374,20 @@ fn runtime_command(app: &AppHandle) -> Result<(PathBuf, Vec<String>, PathBuf), S
     }
 }
 
-fn start_runtime(app: &AppHandle) -> Result<(Child, String), String> {
-    let (command, mut args, cwd) = runtime_command(app)?;
-    args.extend([
+fn runtime_web_args() -> Vec<String> {
+    vec![
         "web".into(),
         "--host".into(),
         "127.0.0.1".into(),
         "--port".into(),
         "0".into(),
-    ]);
+        "--no-open".into(),
+    ]
+}
+
+fn start_runtime(app: &AppHandle) -> Result<(Child, String), String> {
+    let (command, mut args, cwd) = runtime_command(app)?;
+    args.extend(runtime_web_args());
     let mut child = Command::new(&command)
         .args(args)
         .current_dir(cwd)
@@ -625,9 +630,24 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use super::{
-        begin_once, readiness_url, resolve_session_zip, same_origin, save_session_archive,
-        CloseAction, CloseHandshake,
+        begin_once, readiness_url, resolve_session_zip, runtime_web_args, same_origin,
+        save_session_archive, CloseAction, CloseHandshake,
     };
+
+    #[test]
+    fn desktop_runtime_does_not_open_the_system_browser() {
+        assert_eq!(
+            runtime_web_args(),
+            [
+                "web",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0",
+                "--no-open"
+            ]
+        );
+    }
 
     #[test]
     fn accepts_only_nonzero_loopback_readiness_urls() {
