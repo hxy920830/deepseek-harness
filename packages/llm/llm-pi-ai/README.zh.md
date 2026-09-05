@@ -63,11 +63,9 @@ kind: "package-reference"
           thinkingFormat: deepseek
         models:
           - id: acme-think
-            name: Acme Think
-            contextWindow: 262144
-            reasoningEfforts:
-              off:
-              high: high
+            capabilitiesFrom:
+              provider: deepseek
+              model: deepseek-v4-flash
 ```
 
 | 字段 | 默认值 | 含义 |
@@ -78,6 +76,7 @@ kind: "package-reference"
 | `baseURL` | 目录端点 | 路由上所有模型的端点 |
 | `models` | 已安装目录 | 整体替换路由目录；每个条目从已安装模型取默认值 |
 | `modelOverrides` | 无 | 重塑个别已安装目录模型，而不替换其余模型 |
+| `model.capabilitiesFrom` | 未设置 | 明确指定复用能力元数据的内置提供方/模型 |
 | `compat` | 目录检测 | 无法识别端点的协议兼容开关 |
 | `defaultContextWindow` | `262,144` | 未描述模型的容量回退 |
 | `defaultMaxTokens` | `32,768` | 未描述模型的输出上限回退 |
@@ -96,9 +95,23 @@ pi-ai 提供登录的提供方可以通过 harness 授权 seam 登录：流程�
 
 profile 的 `models` 列表会替换而非扩展路由的已安装目录；每个条目从同 id 已安装模型取未设置字段的默认值，因此把路由收窄到两个模型、修正一个容量或添加比已安装目录更新的模型都是一行编辑。`modelOverrides` 无需该代价即可重塑个别已安装目录模型——修正一个模型，保留其余三十七个——当它与 `models` 列表并存、位于手工声明路由上、或点名目录未描述的模型时会被拒绝，因为静默不变的模型会成为别人日后寻找的拼写错误。
 
+### 复用已安装模型的能力
+
+当网关使用的模型 id 与已安装目录不同时，`capabilitiesFrom` 允许模型条目明确指定提供能力元数据的内置提供方和模型。该引用提供显示名称、输入模态、上下文容量、输出容量、推理等级及推理等级映射；只有当引用模型的 API 与路由模型解析出的 API 一致时，引用模型的兼容块才会复用。路由条目的显式字段优先于引用；提供方/模型组合未知时，profile 解析会直接拒绝。
+
+引用只提供元数据。已配置路由继续使用自己的 provider key、模型 id、API、端点和成本；凭据及提供方认证也仍由路由拥有。网关协议需要不同开关时，应明确设置路由级或模型级 `compat`。
+
+```yaml
+models:
+  - id: gateway-model
+    capabilitiesFrom:
+      provider: deepseek
+      model: deepseek-v4-flash
+```
+
 ### 带推理与协议兼容运行
 
-`reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是该等级过线的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
+`reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是该等级过线的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力，或保留 `capabilitiesFrom` 指定模型的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目、能力来源与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
 
 ### 运行时更改配置
 
@@ -212,6 +225,7 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 - **分层合并对字典键没有删除**——base 声明的 `reasoningEfforts` 等级、`modelOverrides` 条目或 `compat` 字段可以被用户层覆盖，但不能被移除。
 - **`headers` 可以携带 redactor 永远看不到的凭据**——profile 解析会拒绝 Fetch 无法表示的名称与值，但该字典仍是纯字符串；以 `apiKeyEnv` 引用存储凭据。
 - **路由目录不会自行刷新**——目录就是 `settings.yaml` 的内容；这里没有任何机制向提供方查询它提供的模型。
+- **能力引用跟随已安装 pi-ai 目录**——`capabilitiesFrom` 必须显式指向内置 provider/model，不能指向自定义路由；内置项被移除或改名后，profile 必须更新引用才能恢复可服务状态。
 - **Anthropic 模型发现最多读取 1,000 个模型**——请求使用 API 的最大页大小，但不会遍历 `has_more`；第一页之外的条目需要手工添加。
 - **每条路由一种协议格式**——混合协议目录路由无法承载另一协议格式的模型；把提供方拆到两个路由键是变通办法。
 - **模态声明不受校验**——声明 `image` 而其网关不支持的模型会在提示词准入后被提供方拒绝。持久图片仍留在历史中，同一误声明模型可能再次失败；切换到纯文本模型仍然可行，因为共享 LLM 运行时会针对该请求把图片引用投影为稳定文本。

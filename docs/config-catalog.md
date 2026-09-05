@@ -1129,6 +1129,8 @@ export interface PiAiModelProfile {
   id: string
   /** Display name for selectors; defaults to the catalog name, then the id. */
   name?: string
+  /** Built-in catalog model whose capability metadata this entry inherits. */
+  capabilitiesFrom?: PiAiCapabilitiesFrom
   /** Maximum combined request and response context in tokens. */
   contextWindow?: number
   /**
@@ -1260,6 +1262,14 @@ export interface PiAiCompatProfile {
 /** One request modality a pi-ai model may accept. */
 export type PiAiModality = Model<Api>['input'][number]
 
+/** A built-in provider/model whose catalog capabilities a configured model uses. */
+export interface PiAiCapabilitiesFrom {
+  /** Built-in pi-ai provider route that supplies the capability metadata. */
+  provider: string
+  /** Built-in provider model id that supplies the capability metadata. */
+  model: string
+}
+
 /**
  * Selectable reasoning efforts for one model: each key is a level the model
  * offers (and selectors show), and its value is the wire spelling dispatch
@@ -1276,7 +1286,7 @@ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFo
 
 Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:216`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:218`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 

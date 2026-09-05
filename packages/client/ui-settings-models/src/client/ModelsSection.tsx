@@ -22,6 +22,7 @@ import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
 import type { ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
+import type { CapabilityProviderOption } from './ModelListEditor.tsx'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
 import type { en } from './locales.ts'
@@ -81,7 +82,7 @@ interface EditorTarget extends ProviderIdentity {
 /** Values that vary around the shared provider-editor rendering. */
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
-  'namespace' | 'schema' | 'operations' | 't' | 'readOnly' | 'onClose'
+  'namespace' | 'schema' | 'operations' | 't' | 'readOnly' | 'onClose' | 'capabilityProviders'
 > {
   target: EditorTarget
 }
@@ -97,6 +98,13 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
       {...props}
     />
   )
+}
+
+/** Built-in pi-ai routes that may supply explicit model capabilities. */
+function capabilityProvidersOf(rows: readonly ProviderRow[]): CapabilityProviderOption[] {
+  return rows
+    .filter(row => row.entry.settingsNs === 'llm-pi-ai' && row.entry.declared !== true)
+    .map(row => ({ provider: row.entry.provider, displayName: row.entry.displayName }))
 }
 
 /**
@@ -303,6 +311,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // one whose schema names the protocols one may speak; without it mounted
   // there is nothing to declare and the entry point stays disabled.
   const protocols = protocolChoices(state.namespaces.get('llm-pi-ai'), schema)
+  const capabilityProviders = capabilityProvidersOf(state.rows)
 
   return (
     <div className={styles['section']}>
@@ -333,6 +342,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   schema,
                   operations,
                   t,
+                  capabilityProviders,
                   readOnly: !state.writable,
                   onClose: (changed) => { closeSetup(changed, target) },
                 })}
@@ -427,6 +437,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   namespace,
                   schema,
                   operations,
+                  capabilityProviders,
                   t,
                   readOnly: !state.writable,
                   onClose: (changed) => { closeEditor(changed, target) },
@@ -467,6 +478,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 schema={schema}
                 settingsPath={addTarget.settingsPath}
                 operations={operations}
+                capabilityProviders={capabilityProviders}
                 t={t}
                 readOnly={!state.writable}
                 onClose={(changed) => { closeEditor(changed, addTarget) }}
@@ -489,6 +501,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   /* v8 ignore next -- the card only opens from a button disabled without this namespace */
                   revision={state.namespaces.get('llm-pi-ai')?.revision ?? 0}
                   operations={operations}
+                  capabilityProviders={capabilityProviders}
                   t={t}
                   readOnly={!state.writable}
                   onClose={(changed) => {

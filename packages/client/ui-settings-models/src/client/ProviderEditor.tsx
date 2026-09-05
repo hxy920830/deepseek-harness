@@ -33,6 +33,7 @@ import {
 import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
+import type { CapabilityProviderOption } from './ModelListEditor.tsx'
 import { deriveKeyRef, protocolChoices } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
@@ -69,6 +70,8 @@ export interface ProviderEditorProps {
   settingsPath: readonly string[]
   /** The Host operations this card writes and interrogates through. */
   operations: ModelsOperations
+  /** Built-in pi-ai providers available for explicit model-capability references. */
+  capabilityProviders: readonly CapabilityProviderOption[]
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable writes (read-only settings provider). */
@@ -357,6 +360,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         setDraft(current => schema.setPath(current, ['models'], next))
       },
       onReset: () => { setDraft(current => schema.deletePath(current, ['models'])) },
+      capabilityProviders: props.capabilityProviders,
     }
     return (
       <>

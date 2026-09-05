@@ -48,6 +48,29 @@ describe('reasoning schema boundary', () => {
   })
 })
 
+describe('capability reference schema boundary', () => {
+  type Materialized = {
+    providers: Record<string, { models?: { capabilitiesFrom?: unknown }[] }>
+  }
+
+  it('keeps an omitted capability reference absent and preserves a complete one', () => {
+    const absent = configWith({})() as Materialized
+    expect(absent.providers['acme-gateway']?.models?.[0]?.capabilitiesFrom).toBeUndefined()
+
+    const configured = configWith({
+      capabilitiesFrom: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    })() as Materialized
+    expect(configured.providers['acme-gateway']?.models?.[0]?.capabilitiesFrom).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+    })
+  })
+
+  it('rejects an explicitly incomplete capability reference', () => {
+    expect(configWith({ capabilitiesFrom: { provider: 'deepseek' } })).toThrow(/capabilitiesFrom expected/)
+  })
+})
+
 describe('modality schema boundary', () => {
   it('rejects a modality pi-ai does not know, at either level', () => {
     expect(configWith({ input: ['audio'] })).toThrow(/expected/)

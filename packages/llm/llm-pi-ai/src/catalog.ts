@@ -199,6 +199,14 @@ export function catalogModels(provider: string): Map<string, Model<Api>> {
  */
 export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>>
 
+/** A built-in provider/model whose catalog capabilities a configured model uses. */
+export interface PiAiCapabilitiesFrom {
+  /** Built-in pi-ai provider route that supplies the capability metadata. */
+  provider: string
+  /** Built-in provider model id that supplies the capability metadata. */
+  model: string
+}
+
 /**
  * Whether one pi-ai compat field is configurable on a profile.
  *
@@ -551,6 +559,8 @@ export interface PiAiModelProfile {
   id: string
   /** Display name for selectors; defaults to the catalog name, then the id. */
   name?: string
+  /** Built-in catalog model whose capability metadata this entry inherits. */
+  capabilitiesFrom?: PiAiCapabilitiesFrom
   /** Maximum combined request and response context in tokens. */
   contextWindow?: number
   /**
@@ -671,7 +681,12 @@ function resolveModelReasoning(
     // spell them, and no listing endpoint reports a model's reasoning
     // protocol. The entry's map (when any) arrives through the `...base`
     // spread in the model literal.
-    return { reasoning: base?.reasoning ?? false }
+    return {
+      reasoning: base?.reasoning ?? false,
+      ...base?.thinkingLevelMap === undefined
+        ? {}
+        : { thinkingLevelMap: { ...base.thinkingLevelMap } },
+    }
   }
   // The installed entry's map may ride along through `...base`; pi-ai never
   // reads it on a non-reasoning model, so stripping it is not worth a field
@@ -769,6 +784,20 @@ function resolveModelCompat(
   return { compat: { ...inherited, ...configured } as ModelCompat }
 }
 
+/** Resolve an explicitly selected built-in catalog model for one entry. */
+function capabilitiesBaseFor(
+  provider: string,
+  entry: PiAiModelProfile,
+): Model<Api> | undefined {
+  const reference = entry.capabilitiesFrom
+  if (reference === undefined) return undefined
+  const base = catalogModels(reference.provider).get(reference.model)
+  if (base === undefined) {
+    invalid(provider, `model "${entry.id}" references unknown catalog model "${reference.provider}/${reference.model}"`)
+  }
+  return base
+}
+
 /** One route's materialized catalog, plus the request caps its profile chose. */
 export interface RouteCatalog {
   /** The materialized models in configuration order. */
@@ -850,6 +879,12 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
     seen.add(entry.id)
     const base = defaults.get(entry.id)
+    // A configured route keeps its own installed model identity when it has
+    // one. An explicit capability reference fills only the metadata missing
+    // from a route that pi-ai does not describe; it never changes the route's
+    // provider, protocol, endpoint, model id, or cost.
+    const capabilityBase = capabilitiesBaseFor(provider, entry)
+    const inherited = base ?? capabilityBase
     const api = request.api ?? base?.api ?? routeApi
     if (api === undefined) {
       invalid(provider, `model "${entry.id}" needs an api; the installed catalog does not describe it, so set the`
@@ -863,11 +898,11 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     // discloses nothing but ids still yields a serviceable route. The fallback
     // is a guess by construction, which is why it is a configurable route field
     // rather than a constant buried here.
-    const contextWindow = entry.contextWindow ?? base?.contextWindow ?? request.defaultContextWindow
+    const contextWindow = entry.contextWindow ?? inherited?.contextWindow ?? request.defaultContextWindow
     if (!Number.isInteger(contextWindow) || contextWindow <= 0) {
       invalid(provider, `model "${entry.id}" contextWindow must be a positive integer`)
     }
-    const maxTokens = entry.maxTokens ?? base?.maxTokens ?? request.defaultMaxTokens
+    const maxTokens = entry.maxTokens ?? inherited?.maxTokens ?? request.defaultMaxTokens
     if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
       invalid(provider, `model "${entry.id}" maxTokens must be a positive integer`)
     }
@@ -882,16 +917,16 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       // never enumerate.
       ...base,
       id: entry.id,
-      name: entry.name ?? base?.name ?? entry.id,
+      name: entry.name ?? inherited?.name ?? entry.id,
       api,
       provider,
       baseUrl,
-      input: declaredInput(entry.input) ?? base?.input ?? [...request.defaultInput],
+      input: declaredInput(entry.input) ?? inherited?.input ?? [...request.defaultInput],
       cost: base?.cost ?? NO_COST,
       contextWindow,
       maxTokens,
-      ...resolveModelReasoning(provider, entry, base),
-      ...resolveModelCompat(provider, entry, request.compat, base, api),
+      ...resolveModelReasoning(provider, entry, inherited),
+      ...resolveModelCompat(provider, entry, request.compat, inherited, api),
     }
   })
   // Per field, not per block: a route may default a switch its completions

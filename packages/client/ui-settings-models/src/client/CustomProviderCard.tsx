@@ -28,7 +28,7 @@ import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
-import type { ModelDraft } from './ModelListEditor.tsx'
+import type { CapabilityProviderOption, ModelDraft } from './ModelListEditor.tsx'
 import { deriveKeyRef } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { en } from './locales.ts'
@@ -61,6 +61,8 @@ export interface CustomProviderCardProps {
   revision: number
   /** The Host operations this card writes and interrogates through. */
   operations: ModelsOperations
+  /** Built-in pi-ai providers available for explicit model-capability references. */
+  capabilityProviders: readonly CapabilityProviderOption[]
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable writes (read-only settings provider). */
@@ -75,7 +77,7 @@ export interface CustomProviderCardProps {
  * @returns the creation card.
  */
 export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
-  const { taken, protocols, operations, t } = props
+  const { taken, protocols, operations, capabilityProviders, t } = props
   // The write is checked against the revision on which this draft was opened.
   const [openedAt] = useState(() => props.revision)
   const [route, setRoute] = useState('')
@@ -273,6 +275,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         }}
         probeBlocked={keyFailure === 'keyBlank' ? 'keyBlankNew' : keyFailure}
         operations={operations}
+        capabilityProviders={capabilityProviders}
         t={t}
         disabled={profileDisabled}
       />

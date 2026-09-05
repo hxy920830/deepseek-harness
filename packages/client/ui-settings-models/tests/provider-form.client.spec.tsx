@@ -36,6 +36,10 @@ const PiAiConfig = Schema.object({
       name: Schema.string(),
       contextWindow: Schema.number(),
       maxTokens: Schema.number(),
+      capabilitiesFrom: Schema.object({
+        provider: Schema.string().required(),
+        model: Schema.string().required(),
+      }),
     })),
     reasoning: Schema.union(['off', 'high']),
   })),
@@ -100,6 +104,8 @@ function scriptedFace(options: {
   baseProviders?: Record<string, JsonValue>
   /** Routes the adapter reports as hand-declared; the rest come back as shipped. */
   declaredRoutes?: readonly string[]
+  /** Additional directory routes used as built-in capability-source fixtures. */
+  directoryProviders?: readonly { provider: string; displayName?: string; declared?: boolean }[]
   discover?: ReturnType<typeof vi.fn>
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
@@ -111,18 +117,20 @@ function scriptedFace(options: {
   const discover = options.discover ?? vi.fn(() => Promise.resolve(ok([])))
   const mutate = options.mutate ?? vi.fn(() => Promise.resolve(remoteOk(namespace)))
   const set = options.set ?? vi.fn(() => Promise.resolve(remoteOk(undefined)))
+  const directoryProviders: readonly { provider: string; displayName?: string; declared?: boolean }[] =
+    options.directoryProviders ?? Object.keys(providers).map(provider => ({ provider }))
   const face = {
     llm: {
       listProviders: vi.fn(() => Promise.resolve(ok(
         Object.keys(providers).map(provider => ({ id: provider, name: provider })),
       ))),
       listConfigurableProviders: vi.fn(() => Promise.resolve(ok(
-        Object.keys(providers).map(provider => ({
-          provider,
-          displayName: provider,
+        directoryProviders.map(entry => ({
+          provider: entry.provider,
+          displayName: entry.displayName ?? entry.provider,
           settingsNs: 'llm-pi-ai',
-          settingsPath: ['providers', provider],
-          declared: options.declaredRoutes?.includes(provider) ?? false,
+          settingsPath: ['providers', entry.provider],
+          declared: entry.declared ?? options.declaredRoutes?.includes(entry.provider) ?? false,
         })),
       ))),
       discoverModels: discover,
@@ -601,6 +609,7 @@ describe('endpoint interrogation', () => {
     render(
       <CustomProviderCard
         taken={[]} protocols={PROTOCOLS} revision={7} operations={operationsWith(scripted.face)}
+        capabilityProviders={[]}
         t={t} readOnly={false} onClose={vi.fn()}
       />,
     )
@@ -712,6 +721,88 @@ describe('endpoint interrogation', () => {
   })
 })
 
+describe('explicit capability references', () => {
+  it('offers built-in provider and model dropdowns without inferring a source', async () => {
+    const discover = vi.fn((_settingsNs: string, request: { provider?: string }) => Promise.resolve(ok(
+      request.provider === 'anthropic'
+        ? [{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet' }]
+        : [{ id: 'gpt-4.1', name: 'GPT-4.1' }],
+    )))
+    const { mutate } = await mountSection({
+      discover,
+      providers: {
+        openai: { baseURL: 'https://proxy.example/v1' },
+        'acme-gateway': {
+          api: 'openai-completions',
+          baseURL: 'https://acme.example/v1',
+          models: [{ id: 'proxy-model' }],
+        },
+      },
+      directoryProviders: [
+        { provider: 'openai' },
+        { provider: 'anthropic' },
+        { provider: 'acme-gateway', declared: true },
+      ],
+      declaredRoutes: ['acme-gateway'],
+    })
+    openEditor('acme-gateway')
+    expandModel(1)
+
+    const provider = screen.getByLabelText<HTMLSelectElement>(`${en.capabilitiesFromProvider} 1`)
+    const model = screen.getByLabelText<HTMLSelectElement>(`${en.capabilitiesFromModel} 1`)
+    expect(provider.value).toBe('')
+    expect([...provider.options].map(option => option.value)).toEqual(['', 'openai', 'anthropic'])
+    expect(model.disabled).toBe(true)
+
+    fireEvent.change(provider, { target: { value: 'anthropic' } })
+    await waitFor(() => { expect(discover).toHaveBeenCalledWith('llm-pi-ai', { provider: 'anthropic' }) })
+    await waitFor(() => { expect(model.disabled).toBe(false) })
+    expect(model.value).toBe('')
+    expect([...model.options].map(option => option.value)).toContain('claude-sonnet-4-5')
+
+    fireEvent.change(model, { target: { value: 'claude-sonnet-4-5' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([{
+      id: 'proxy-model',
+      capabilitiesFrom: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
+    }])
+  })
+
+  it('lets the custom-provider card save a selected built-in capability model', async () => {
+    const discover = vi.fn(() => Promise.resolve(ok([{ id: 'gpt-4.1', name: 'GPT-4.1' }])))
+    const scripted = scriptedFace({ discover })
+    const onClose = vi.fn()
+    render(
+      <CustomProviderCard
+        taken={[]}
+        protocols={PROTOCOLS}
+        revision={7}
+        operations={operationsWith(scripted.face)}
+        capabilityProviders={[{ provider: 'openai', displayName: 'OpenAI' }]}
+        t={t}
+        readOnly={false}
+        onClose={onClose}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'proxy-model' } })
+    expandModel(1)
+    fireEvent.change(screen.getByLabelText(`${en.capabilitiesFromProvider} 1`), { target: { value: 'openai' } })
+    const model = screen.getByLabelText<HTMLSelectElement>(`${en.capabilitiesFromModel} 1`)
+    await waitFor(() => { expect(model.disabled).toBe(false) })
+    fireEvent.change(model, { target: { value: 'gpt-4.1' } })
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(scripted.mutate).toHaveBeenCalledWith('llm-pi-ai', expect.anything(), 7)
+    expect((scripted.mutate.mock.calls[0] as [string, MutateCall['ops'], number])[1][0]?.value)
+      .toMatchObject({ models: [{ id: 'proxy-model', capabilitiesFrom: { provider: 'openai', model: 'gpt-4.1' } }] })
+  })
+})
+
 describe('provider rows', () => {
   it('tags the routes the adapter declared, and only those', async () => {
     await mountSection({
@@ -764,6 +855,7 @@ describe('hand-declared providers', () => {
     overrides: Partial<Parameters<typeof CustomProviderCard>[0]> = {},
     wire: Parameters<typeof scriptedFace>[0] = {},
   ) {
+    const { capabilityProviders = [], ...cardOverrides } = overrides
     const scripted = scriptedFace(wire)
     const onClose = vi.fn()
     render(
@@ -775,7 +867,8 @@ describe('hand-declared providers', () => {
         t={t}
         readOnly={false}
         onClose={onClose}
-        {...overrides}
+        {...cardOverrides}
+        capabilityProviders={capabilityProviders}
       />,
     )
     return { ...scripted, onClose }

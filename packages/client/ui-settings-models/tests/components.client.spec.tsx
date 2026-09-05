@@ -47,6 +47,16 @@ const PiAiConfig = Schema.object({
   providers: Schema.dict(Schema.object({
     apiKeyEnv: Schema.string().role('credential-ref'),
     baseURL: Schema.string(),
+    models: Schema.array(Schema.object({
+      id: Schema.string().required(),
+      name: Schema.string(),
+      contextWindow: Schema.number(),
+      maxTokens: Schema.number(),
+      capabilitiesFrom: Schema.object({
+        provider: Schema.string().required(),
+        model: Schema.string().required(),
+      }),
+    })),
     reasoning: Schema.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
     headers: Schema.dict(Schema.string()),
   })),
@@ -512,6 +522,7 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
+      capabilityProviders={[]}
       t={t}
       readOnly={false}
       credentialOnly
@@ -765,6 +776,7 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
+      capabilityProviders={[]}
       t={t}
       readOnly={false}
       onClose={() => {}}
@@ -995,6 +1007,7 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
+      capabilityProviders={[]}
       t={t}
       readOnly={false}
       onClose={() => {}}

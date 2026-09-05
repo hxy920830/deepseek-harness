@@ -107,6 +107,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
           schema={schema}
           settingsPath={row.entry.settingsPath}
           operations={operations}
+          capabilityProviders={[]}
           t={t}
           readOnly={false}
           hideTitle

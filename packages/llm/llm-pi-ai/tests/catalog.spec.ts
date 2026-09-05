@@ -755,6 +755,81 @@ describe('modelOverrides', () => {
   })
 })
 
+describe('explicit catalog capability references', () => {
+  it('inherits selected catalog capabilities without changing route identity', () => {
+    const [source] = getBuiltinModels('deepseek')
+    if (source === undefined) throw new Error('the installed catalog ships no deepseek model')
+
+    const [model] = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test/v1',
+        models: [{
+          id: 'gateway-model',
+          capabilitiesFrom: { provider: 'deepseek', model: source.id },
+        }],
+      },
+    }).get('acme-gateway')?.piProvider.getModels() ?? []
+    if (model === undefined) throw new Error('the capability reference produced no model')
+
+    expect(model).toMatchObject({
+      id: 'gateway-model',
+      provider: 'acme-gateway',
+      api: 'openai-completions',
+      baseUrl: 'https://acme.test/v1',
+      name: source.name,
+      contextWindow: source.contextWindow,
+      maxTokens: source.maxTokens,
+      input: source.input,
+      reasoning: source.reasoning,
+      thinkingLevelMap: source.thinkingLevelMap,
+    })
+    expect(model).not.toHaveProperty('capabilitiesFrom')
+  })
+
+  it('lets explicit model fields override the selected capabilities', () => {
+    const [source] = getBuiltinModels('deepseek')
+    if (source === undefined) throw new Error('the installed catalog ships no deepseek model')
+
+    const [model] = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test/v1',
+        models: [{
+          id: 'gateway-model',
+          capabilitiesFrom: { provider: 'deepseek', model: source.id },
+          name: 'Gateway Model',
+          contextWindow: 65_536,
+          maxTokens: 4096,
+          reasoningEfforts: false,
+        }],
+      },
+    }).get('acme-gateway')?.piProvider.getModels() ?? []
+    if (model === undefined) throw new Error('the capability reference produced no model')
+
+    expect(model).toMatchObject({
+      name: 'Gateway Model',
+      contextWindow: 65_536,
+      maxTokens: 4096,
+      reasoning: false,
+    })
+    expect(getSupportedThinkingLevels(model)).toEqual(['off'])
+  })
+
+  it('rejects a capability reference outside the installed catalog', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test/v1',
+        models: [{
+          id: 'gateway-model',
+          capabilitiesFrom: { provider: 'not-built-in', model: 'missing' },
+        }],
+      },
+    })).toThrow(/model "gateway-model" references unknown catalog model "not-built-in\/missing"/)
+  })
+})
+
 describe('compat switches', () => {
   /** The materialized models of one route, keyed by id. */
   function modelsOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>, route: string): Map<string, Model<Api>> {

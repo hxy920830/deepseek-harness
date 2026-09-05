@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-05-explicit-model-capability-references.md
+2026-09-05-explicit-model-capability-references.md: 9e6dd10c699fe1feaa6213c9271fc49ffdf95c92
+2026-09-05-explicit-model-capability-references.zh.md: 9cca8aeefa74a4ff634224ddeeb78b3a9eda963e

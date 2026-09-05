@@ -32,6 +32,7 @@ import {
 } from './catalog.ts'
 import type {
   PiAiCompatProfile,
+  PiAiCapabilitiesFrom,
   PiAiModality,
   PiAiModelOverride,
   PiAiModelProfile,
@@ -77,6 +78,7 @@ export const DEFAULT_INPUT: readonly PiAiModality[] = ['text']
 
 export type {
   PiAiCompatProfile,
+  PiAiCapabilitiesFrom,
   PiAiModality,
   PiAiModelOverride,
   PiAiModelProfile,
@@ -290,6 +292,16 @@ const reasoningEfforts = z.dict(
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
 const modelFields = {
   name: z.string(),
+  // Schemastery assigns `{}` as the default for every object schema. The
+  // union keeps an omitted reference absent, while its object arm still
+  // rejects an explicitly incomplete reference.
+  capabilitiesFrom: z.transform(
+    z.union([z.object({
+      provider: z.string().required(),
+      model: z.string().required(),
+    }), z.const(null)]),
+    value => value ?? undefined,
+  ) as unknown as z<PiAiCapabilitiesFrom>,
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
   // No explicit default, unlike the route's `defaultInput`: schemastery

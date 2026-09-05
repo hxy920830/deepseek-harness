@@ -63,11 +63,9 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
           thinkingFormat: deepseek
         models:
           - id: acme-think
-            name: Acme Think
-            contextWindow: 262144
-            reasoningEfforts:
-              off:
-              high: high
+            capabilitiesFrom:
+              provider: deepseek
+              model: deepseek-v4-flash
 ```
 
 | Field | Default | Meaning |
@@ -78,6 +76,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `baseURL` | catalog endpoint | Endpoint of every model on the route |
 | `models` | installed catalog | Replaces the route's catalog wholesale; each entry defaults from the installed model |
 | `modelOverrides` | none | Reshapes individual installed-catalog models without replacing the rest |
+| `model.capabilitiesFrom` | absent | Explicit built-in provider/model whose capability metadata the entry reuses |
 | `compat` | catalog detection | Wire-compatibility switches for unrecognized endpoints |
 | `defaultContextWindow` | `262,144` | Capacity fallback for undescribed models |
 | `defaultMaxTokens` | `32,768` | Output-cap fallback for undescribed models |
@@ -96,9 +95,23 @@ A provider pi-ai ships a login for can be signed into through the harness author
 
 A profile's `models` list replaces the route's installed catalog rather than extending it; each entry defaults its unset fields from the installed model of the same id, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are one-line edits. `modelOverrides` reshapes individual installed-catalog models without that cost — correct one model, keep the other thirty-seven — and is refused when set beside a `models` list, on a hand-declared route, or naming a model the catalog does not describe, because a silently unchanged model would be a typo someone hunts for later.
 
+### Reuse an installed model's capabilities
+
+When a gateway uses a model id that differs from the installed catalog, `capabilitiesFrom` lets one model entry explicitly name the built-in provider and model whose metadata it uses. The reference supplies the display name, input modalities, context capacity, output capacity, reasoning levels, and reasoning-level map. A referenced compatibility block is reused only when its API matches the route model's resolved API. Explicit fields on the route entry win over the reference, and an unknown provider/model pair is refused while the profile resolves.
+
+The reference supplies metadata only. The configured route keeps its own provider key, model id, API, endpoint, and cost; credentials and provider authentication also remain route-owned. Set route or model `compat` explicitly when the gateway's protocol needs different switches.
+
+```yaml
+models:
+  - id: gateway-model
+    capabilitiesFrom:
+      provider: deepseek
+      model: deepseek-v4-flash
+```
+
 ### Run with reasoning and wire compatibility
 
-`reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
+`reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability, or the model named by `capabilitiesFrom`; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor its capability source or installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
 
 ### Change configuration at runtime
 
@@ -212,6 +225,7 @@ These limits define where the adapter stops and future work begins. They are cur
 - **The layered merge has no delete for dict keys** — a `reasoningEfforts` level, `modelOverrides` entry, or `compat` field the base declares can be overridden but not removed by the user layer.
 - **`headers` can carry a credential the redactor never sees** — profile resolution rejects names and values Fetch cannot represent, but the dict remains plain strings; store credentials as `apiKeyEnv` references.
 - **A route's catalog never refreshes itself** — the catalog is whatever `settings.yaml` says; nothing here queries a provider for the models it serves.
+- **Capability references follow the installed pi-ai catalog** — `capabilitiesFrom` is explicit and cannot name a custom route; a removed or renamed built-in provider/model makes the profile unserviceable until the reference is changed.
 - **Anthropic discovery reads at most 1,000 models** — the request uses the API's maximum page size but does not traverse `has_more`; entries beyond the first page must be added by hand.
 - **One wire protocol per route** — a mixed-protocol catalog route cannot host a model of the other protocol; splitting the provider across two route keys is the workaround.
 - **A modality declaration is not verified** — a model declaring `image` its gateway does not serve is refused by the provider after prompt admission. The durable image remains in history and the same misdeclared model can fail again; switching to a text-only model remains possible because the shared LLM runtime projects image references into stable text for that request.

@@ -14,7 +14,7 @@
  * rows the user can still fill in by hand.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -29,6 +29,14 @@ import styles from './ModelsSection.module.css'
  * edit rather than being dropped by a rebuild.
  */
 export type ModelDraft = DeepSeekModelDraft
+
+/** One built-in provider offered as a capability source. */
+export interface CapabilityProviderOption {
+  /** Built-in pi-ai provider route. */
+  provider: string
+  /** Human-readable provider label. */
+  displayName: string
+}
 
 /** A row's text field, or the empty string when unset or not a string. */
 function textOf(model: ModelDraft, key: string): string {
@@ -81,10 +89,23 @@ export interface ModelListEditorProps {
   probeBlocked?: keyof typeof en | undefined
   /** The Host operations whose interrogation answers the fetch action. */
   operations: ModelsOperations
+  /** Built-in providers available for explicit model-capability references. */
+  capabilityProviders: readonly CapabilityProviderOption[]
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable every control (read-only deployment or a pending write). */
   disabled: boolean
+}
+
+/** Read a complete capability reference from one draft row. */
+function capabilityReferenceOf(model: ModelDraft): { provider: string; model: string } | undefined {
+  const value = model['capabilitiesFrom']
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const provider = (value as Record<string, unknown>)['provider']
+  const modelId = (value as Record<string, unknown>)['model']
+  return typeof provider === 'string' && typeof modelId === 'string'
+    ? { provider, model: modelId }
+    : undefined
 }
 
 /** Disclosure chevron; rotates to point down while its row is open. */
@@ -157,7 +178,7 @@ function adopt(candidate: LlmDiscoveredModel): ModelDraft {
  * @returns the model-list editor.
  */
 export function ModelListEditor(props: ModelListEditorProps): ReactNode {
-  const { models, onChange, probe, operations, t, disabled } = props
+  const { models, onChange, probe, operations, t, disabled, capabilityProviders } = props
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [candidates, setCandidates] = useState<readonly LlmDiscoveredModel[] | undefined>(undefined)
@@ -173,6 +194,18 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   // FIELD: a single buffer would be displaced by editing any other field, and
   // the abandoned one would render its stored NaN as the literal `NaN`.
   const [editing, setEditing] = useState<ReadonlyMap<string, string>>(new Map())
+  // Keep a provider choice locally while its model choice is empty. The
+  // serialized reference is written only after both dropdowns are complete.
+  const [capabilityProvidersByRow, setCapabilityProvidersByRow] = useState<ReadonlyMap<number, string>>(
+    () => new Map(models.flatMap((model, index) => {
+      const reference = capabilityReferenceOf(model)
+      return reference === undefined ? [] : [[index, reference.provider] as const]
+    })),
+  )
+  const [capabilityModels, setCapabilityModels] = useState<ReadonlyMap<string, readonly LlmDiscoveredModel[]>>(new Map())
+  const [capabilityLoading, setCapabilityLoading] = useState<ReadonlySet<string>>(new Set())
+  const [capabilityFailures, setCapabilityFailures] = useState<ReadonlyMap<string, string>>(new Map())
+  const capabilityRequests = useRef(new Set<string>())
 
   /** Buffer key for one capacity field; the row half moves when rows do. */
   const bufferKey = (index: number, field: CapacityField): string => `${String(index)}:${field}`
@@ -209,14 +242,11 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
-  const patch = (index: number, next: Record<string, string | number | undefined>): void => {
+  const patch = (index: number, next: Record<string, unknown>): void => {
     onChange(models.map((model, at) => {
       if (at !== index) return model
-      // Rebuilt rather than spread over: an emptied optional field has to leave
-      // the profile, not be stored as a value its schema would reject.
-      // Spread first so a field this card does not edit survives; an emptied
-      // optional field is then dropped rather than stored as a value its
-      // schema would reject.
+      // Spread first so fields this card does not edit survive; an emptied
+      // optional field is then dropped instead of stored as a rejected value.
       const cleared = new Set(
         Object.entries(next).filter(([, value]) => value === undefined || value === '').map(([key]) => key),
       )
@@ -224,6 +254,85 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         Object.entries({ ...model, ...next }).filter(([key]) => !cleared.has(key)),
       )
     }))
+  }
+
+  const loadCapabilityModels = async (provider: string): Promise<void> => {
+    if (provider.length === 0 || capabilityModels.has(provider) || capabilityRequests.current.has(provider)) return
+    capabilityRequests.current.add(provider)
+    setCapabilityLoading(current => new Set([...current, provider]))
+    setCapabilityFailures((current) => {
+      const next = new Map(current)
+      next.delete(provider)
+      return next
+    })
+    try {
+      const answer = await operations.discoverModels('llm-pi-ai', { provider })
+      if (answer.kind === 'refused') {
+        setCapabilityFailures(current => new Map(current).set(provider, answer.message))
+        return
+      }
+      setCapabilityModels(current => new Map(current).set(provider, answer.models))
+    } catch (error: unknown) {
+      setCapabilityFailures(current => new Map(current).set(provider, String(error)))
+    } finally {
+      capabilityRequests.current.delete(provider)
+      setCapabilityLoading((current) => {
+        const next = new Set(current)
+        next.delete(provider)
+        return next
+      })
+    }
+  }
+
+  // Existing references load their model options when the editor opens. The
+  // source provider is explicit, so this never infers from the route model id.
+  useEffect(() => {
+    const referencedProviders = new Set(
+      models.flatMap((model) => {
+        const reference = capabilityReferenceOf(model)
+        return reference === undefined ? [] : [reference.provider]
+      }),
+    )
+    for (const provider of referencedProviders) void loadCapabilityModels(provider)
+  }, [models, operations])
+
+  const selectedCapabilityProvider = (model: ModelDraft, index: number): string =>
+    capabilityProvidersByRow.get(index) ?? capabilityReferenceOf(model)?.provider ?? ''
+
+  const selectedCapabilityModel = (model: ModelDraft, index: number): string => {
+    const reference = capabilityReferenceOf(model)
+    return reference?.provider === selectedCapabilityProvider(model, index) ? reference.model : ''
+  }
+
+  const changeCapabilityProvider = (index: number, provider: string): void => {
+    setCapabilityProvidersByRow((current) => {
+      const next = new Map(current)
+      if (provider.length === 0) next.delete(index)
+      else next.set(index, provider)
+      return next
+    })
+    // Changing the provider invalidates the previous model. Keep the new
+    // provider only in local state until its model is selected.
+    patch(index, { capabilitiesFrom: undefined })
+    void loadCapabilityModels(provider)
+  }
+
+  const changeCapabilityModel = (index: number, model: ModelDraft, modelId: string): void => {
+    if (modelId.length === 0) {
+      patch(index, { capabilitiesFrom: undefined })
+      return
+    }
+    patch(index, {
+      capabilitiesFrom: {
+        provider: selectedCapabilityProvider(model, index),
+        model: modelId,
+      },
+    })
+  }
+
+  const resetModels = (): void => {
+    setCapabilityProvidersByRow(new Map())
+    props.onReset?.()
   }
 
   const fetchModels = async (): Promise<void> => {
@@ -328,7 +437,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
               type="button"
               className={styles['linkButton']}
               disabled={disabled}
-              onClick={props.onReset}
+              onClick={resetModels}
             >
               {t('resetModels')}
             </button>
@@ -399,6 +508,14 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                   return next
                 })
                 setEditing(current => reindexOnRemove(current, index))
+                setCapabilityProvidersByRow((current) => {
+                  const next = new Map<number, string>()
+                  for (const [at, provider] of current) {
+                    if (at === index) continue
+                    next.set(at > index ? at - 1 : at, provider)
+                  }
+                  return next
+                })
               }}
             >
               <IconTrash />
@@ -433,6 +550,51 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
                 </label>
+                <label className={styles['modelField']}>
+                  <span className={styles['modelFieldLabel']}>{t('capabilitiesFromProvider')}</span>
+                  <select
+                    className={`${styles['input']} ${styles['selectInput']}`}
+                    value={selectedCapabilityProvider(model, index)}
+                    aria-label={`${t('capabilitiesFromProvider')} ${index + 1}`}
+                    disabled={disabled}
+                    onChange={(event) => { changeCapabilityProvider(index, event.target.value) }}
+                  >
+                    <option value="">{t('capabilitiesFromNone')}</option>
+                    {capabilityProviders.map(source => (
+                      <option key={source.provider} value={source.provider}>{source.displayName}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className={styles['modelField']}>
+                  <span className={styles['modelFieldLabel']}>{t('capabilitiesFromModel')}</span>
+                  <select
+                    className={`${styles['input']} ${styles['selectInput']}`}
+                    value={selectedCapabilityModel(model, index)}
+                    aria-label={`${t('capabilitiesFromModel')} ${index + 1}`}
+                    disabled={disabled
+                      || selectedCapabilityProvider(model, index).length === 0
+                      || capabilityLoading.has(selectedCapabilityProvider(model, index))}
+                    onChange={(event) => { changeCapabilityModel(index, model, event.target.value) }}
+                  >
+                    <option value="">
+                      {capabilityLoading.has(selectedCapabilityProvider(model, index))
+                        ? t('capabilitiesFromLoading')
+                        : t('capabilitiesFromNone')}
+                    </option>
+                    {(capabilityModels.get(selectedCapabilityProvider(model, index)) ?? []).map(source => (
+                      <option key={source.id} value={source.id}>
+                        {source.name === undefined ? source.id : `${source.name} (${source.id})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {(() => {
+                  const sourceProvider = selectedCapabilityProvider(model, index)
+                  const sourceFailure = capabilityFailures.get(sourceProvider)
+                  return sourceFailure === undefined
+                    ? null
+                    : <p className={styles['error']}>{sourceFailure}</p>
+                })()}
               </div>
             )
             : null}
