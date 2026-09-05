@@ -12,7 +12,7 @@ From the repository root:
 pnpm --filter @deepseek-ai/dsh-desktop run dev
 ```
 
-The Tauri development hook builds the repository first. The Rust process then launches `pnpm dsh web --host 127.0.0.1 --port 0` from the checkout and keeps its stdin pipe open as the parent-lifetime channel.
+The Tauri development hook builds the repository first. The Rust process then launches `node --import tsx/esm apps/cli/src/bin.ts web --host 127.0.0.1 --port 0 --no-open` from the checkout and keeps its stdin pipe open as the parent-lifetime channel. The URL is loaded in the Tauri WebView instead of being handed to the system browser.
 
 ## Window and tray lifecycle
 

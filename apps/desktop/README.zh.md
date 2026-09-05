@@ -12,7 +12,7 @@
 pnpm --filter @deepseek-ai/dsh-desktop run dev
 ```
 
-Tauri 开发钩子会先构建仓库。随后 Rust 进程从当前 checkout 启动 `pnpm dsh web --host 127.0.0.1 --port 0`，并保持其 stdin 管道开启，作为父进程生命周期通道。
+Tauri 开发钩子会先构建仓库。随后 Rust 进程从当前 checkout 启动 `node --import tsx/esm apps/cli/src/bin.ts web --host 127.0.0.1 --port 0 --no-open`，并保持其 stdin 管道开启，作为父进程生命周期通道。该 URL 会加载到 Tauri WebView，而不会交给系统浏览器。
 
 ## 窗口与托盘生命周期
 

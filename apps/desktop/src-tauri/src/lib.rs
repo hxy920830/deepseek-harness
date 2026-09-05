@@ -329,11 +329,13 @@ fn terminate_process_tree(child: &mut Child) {
 
 fn readiness_url(line: &str) -> Option<String> {
     let value = line.strip_prefix(READY_PREFIX)?.split_whitespace().next()?;
-    let port = value
-        .strip_prefix("http://127.0.0.1:")?
-        .parse::<u16>()
-        .ok()?;
-    (port != 0).then(|| format!("http://127.0.0.1:{port}"))
+    let url = value.parse::<tauri::Url>().ok()?;
+    (url.scheme() == "http"
+        && url.host_str() == Some("127.0.0.1")
+        && url.port().is_some_and(|port| port != 0)
+        && url.username().is_empty()
+        && url.password().is_none())
+    .then(|| value.to_owned())
 }
 
 fn same_origin(allowed: &tauri::Url, candidate: &tauri::Url) -> bool {
@@ -342,6 +344,7 @@ fn same_origin(allowed: &tauri::Url, candidate: &tauri::Url) -> bool {
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
         .join("..")
         .join("..")
         .canonicalize()
@@ -366,12 +369,25 @@ fn production_runtime(app: &AppHandle) -> Result<(PathBuf, Vec<String>, PathBuf)
 
 fn runtime_command(app: &AppHandle) -> Result<(PathBuf, Vec<String>, PathBuf), String> {
     if cfg!(debug_assertions) {
-        let root = repository_root();
-        let command = if cfg!(windows) { "pnpm.cmd" } else { "pnpm" };
-        Ok((PathBuf::from(command), vec!["dsh".into()], root))
+        Ok(debug_runtime_command())
     } else {
         production_runtime(app)
     }
+}
+
+fn debug_runtime_command() -> (PathBuf, Vec<String>, PathBuf) {
+    let root = repository_root();
+    let command = if cfg!(windows) { "node.exe" } else { "node" };
+    let entry = Path::new("apps").join("cli").join("src").join("bin.ts");
+    (
+        PathBuf::from(command),
+        vec![
+            "--import".into(),
+            "tsx/esm".into(),
+            entry.to_string_lossy().into_owned(),
+        ],
+        root,
+    )
 }
 
 fn runtime_web_args() -> Vec<String> {
@@ -627,12 +643,35 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
+    use std::{path::PathBuf, sync::atomic::AtomicBool};
 
     use super::{
-        begin_once, readiness_url, resolve_session_zip, runtime_web_args, same_origin,
-        save_session_archive, CloseAction, CloseHandshake,
+        begin_once, debug_runtime_command, readiness_url, repository_root, resolve_session_zip,
+        runtime_web_args, same_origin, save_session_archive, CloseAction, CloseHandshake,
     };
+
+    #[test]
+    fn debug_runtime_uses_the_direct_source_cli_entry() {
+        let (command, args, cwd) = debug_runtime_command();
+        assert_eq!(
+            command,
+            PathBuf::from(if cfg!(windows) { "node.exe" } else { "node" })
+        );
+        assert_eq!(cwd, repository_root());
+        assert_eq!(
+            args,
+            vec![
+                "--import".to_owned(),
+                "tsx/esm".to_owned(),
+                PathBuf::from("apps")
+                    .join("cli")
+                    .join("src")
+                    .join("bin.ts")
+                    .to_string_lossy()
+                    .into_owned(),
+            ]
+        );
+    }
 
     #[test]
     fn desktop_runtime_does_not_open_the_system_browser() {
@@ -652,16 +691,19 @@ mod tests {
     #[test]
     fn accepts_only_nonzero_loopback_readiness_urls() {
         assert_eq!(
-            readiness_url("dsh web: http://127.0.0.1:43127"),
-            Some("http://127.0.0.1:43127".into())
+            readiness_url("dsh web: http://127.0.0.1:43127/?token=test-token"),
+            Some("http://127.0.0.1:43127/?token=test-token".into())
         );
         assert_eq!(
-            readiness_url("dsh web: http://127.0.0.1:43127 (LAN: http://10.0.0.2:43127)"),
-            Some("http://127.0.0.1:43127".into())
+            readiness_url(
+                "dsh web: http://127.0.0.1:43127/?token=test-token (LAN: http://10.0.0.2:43127)"
+            ),
+            Some("http://127.0.0.1:43127/?token=test-token".into())
         );
         assert_eq!(readiness_url("dsh web: http://127.0.0.1:0"), None);
         assert_eq!(readiness_url("dsh web: http://localhost:43127"), None);
         assert_eq!(readiness_url("dsh web: https://127.0.0.1:43127"), None);
+        assert_eq!(readiness_url("dsh web: http://user:pass@127.0.0.1:43127"), None);
         assert_eq!(readiness_url("log: http://127.0.0.1:43127"), None);
     }
 

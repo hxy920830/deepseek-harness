@@ -12,7 +12,7 @@ DeepSeek Harness 需要一个带系统托盘和明确关闭行为的 Tauri 2 桌
 
 [`apps/desktop`](../../../../apps/desktop/README.zh.md) 是位于现有 Web 组合之上的应用壳。Rust 负责原生窗口、系统托盘、受限关闭握手和一个子 Host。它使用回环地址与零端口启动 `dsh web`，只接受既有的 `dsh web: http://127.0.0.1:<port>` 就绪信号，并在收到信号后创建主 WebView。
 
-开发态启动仓库中的 `pnpm dsh` 入口。桌面包声明已构建 Web 组合的完整生产依赖集；生产态验证其 workspace peer 闭包并部署该依赖树，再与构建机器的原生 Node 可执行文件一起暂存为 Tauri resources。每个平台分别构建自己的载体和安装包。
+开发态从仓库根目录直接启动源码 CLI：`node --import tsx/esm apps/cli/src/bin.ts web --host 127.0.0.1 --port 0 --no-open`，这样回环页面由 Tauri WebView 承载，不依赖 `pnpm.cmd` 包装进程，也不会转交系统浏览器。桌面包声明已构建 Web 组合的完整生产依赖集；生产态验证其 workspace peer 闭包并部署该依赖树，再与构建机器的原生 Node 可执行文件一起暂存为 Tauri resources。每个平台分别构建自己的载体和安装包。
 
 桌面进程保持 Host stdin 开启，将其作为显式父进程生命周期通道。收到字节或 EOF 后，CLI 会运行既有的有界关闭控制器，dispose Cordis 树。桌面退出会等待该子进程完成；五秒后仍未完成才会强制终止。
 

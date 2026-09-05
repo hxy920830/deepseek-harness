@@ -8,7 +8,7 @@ const desktop = resolve(import.meta.dirname, '..')
 const runtime = join(desktop, 'src-tauri', 'runtime')
 const node = join(runtime, process.platform === 'win32' ? 'node.exe' : 'node')
 const entry = join(runtime, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
-const child = spawn(node, [entry, 'web', '--host', '127.0.0.1', '--port', '0'], {
+const child = spawn(node, [entry, 'web', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
   cwd: runtime,
   env: { ...process.env, DSH_PARENT_LIFETIME: 'stdio' },
   stdio: ['pipe', 'pipe', 'pipe'],
